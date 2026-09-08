@@ -472,7 +472,11 @@ def test_teams():
             if result.get('webhook'):
                 parts.append('Webhook ready')
             if result.get('graph_api'):
-                parts.append('Graph API connected (DMs enabled)')
+                if result.get('dm_capable'):
+                    parts.append('Graph API + DMs enabled')
+                else:
+                    reason = result.get('sender_error', 'sender_email not configured')
+                    parts.append(f'Graph API OK (DMs disabled: {reason})')
             return jsonify({
                 'status': 'connected',
                 'connected': True,

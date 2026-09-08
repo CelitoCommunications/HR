@@ -3,11 +3,13 @@ Microsoft Teams connector for Celito Onboarding Platform.
 
 Two messaging paths:
   1. Incoming Webhook  — post to a specific Teams channel (simple, no auth)
-  2. Graph API DM      — send 1:1 chat messages to users by email
-                         (requires Chat.Create + ChatMessage.Send app permissions)
+  2. Graph API DM      — send 1:1 chat messages between two real users
+                         (requires Chat.ReadWrite.All application permission)
 
 The webhook path works out of the box with just a URL.
-The DM path reuses your Entra ID app registration (tenant_id, client_id, client_secret).
+The DM path reuses your Entra ID app registration (tenant_id, client_id, client_secret)
+and requires a "sender" user (e.g. the HR service account or the bot account email)
+configured as teams.sender_email in settings.json.
 """
 
 import logging
@@ -83,22 +85,17 @@ class TeamsClient:
         if email_lower in self._user_id_cache:
             return self._user_id_cache[email_lower]
 
-        try:
-            resp = requests.get(
-                f"{GRAPH_API}/users/{email}",
-                headers=self._graph_headers(),
-                timeout=15,
-            )
-            if resp.status_code == 404:
-                logger.warning("Teams user not found: %s", email)
-                return None
-            resp.raise_for_status()
-            user_id = resp.json()["id"]
-            self._user_id_cache[email_lower] = user_id
-            return user_id
-        except Exception as e:
-            logger.error("Teams user lookup failed for %s: %s", email, e)
-            return None
+        resp = requests.get(
+            f"{GRAPH_API}/users/{email}",
+            headers=self._graph_headers(),
+            timeout=15,
+        )
+        if resp.status_code == 404:
+            raise ValueError(f"Teams user not found: {email}")
+        resp.raise_for_status()
+        user_id = resp.json()["id"]
+        self._user_id_cache[email_lower] = user_id
+        return user_id
 
     # ──────────────────────────────────────────────────────────────
     # Webhook messaging (channel posts)
@@ -111,11 +108,13 @@ class TeamsClient:
         Args:
             text: Message text (supports basic markdown)
             webhook_url: Override webhook URL (defaults to config)
+
+        Raises:
+            RuntimeError: if webhook is not configured or the post fails.
         """
         url = webhook_url or config.get("teams.webhook_url", "")
         if not url:
-            logger.warning("Teams webhook URL not configured")
-            return {"ok": False, "error": "webhook_not_configured"}
+            raise RuntimeError("Teams webhook URL not configured")
 
         # Adaptive Card for rich formatting
         payload = {
@@ -142,11 +141,10 @@ class TeamsClient:
         }
 
         resp = requests.post(url, json=payload, timeout=15)
-        if resp.status_code in (200, 202):
-            return {"ok": True}
-        else:
-            logger.error("Teams webhook failed: %s %s", resp.status_code, resp.text[:200])
-            return {"ok": False, "error": f"HTTP {resp.status_code}"}
+        if resp.status_code not in (200, 202):
+            raise RuntimeError(f"Teams webhook failed: HTTP {resp.status_code}")
+
+        logger.info("Teams webhook message posted")
 
     # ──────────────────────────────────────────────────────────────
     # Graph API DM messaging
@@ -154,83 +152,102 @@ class TeamsClient:
 
     def send_dm(self, user_email, text):
         """
-        Send a direct 1:1 chat message to a user via Graph API.
+        Send a 1:1 chat message to a user via Graph API.
 
-        Requires application permissions: Chat.Create, ChatMessage.Send
+        Uses a real "sender" user (configured as teams.sender_email) to
+        create a chat with the recipient.  Requires Chat.ReadWrite.All
+        and User.Read.All application permissions.
 
-        If Graph API DM permissions are not available, falls back to
-        posting via webhook with the user's name prefixed.
+        Falls back to webhook channel post (tagged with the user's email)
+        if Graph DM fails.
+
+        Raises:
+            RuntimeError: if neither Graph DM nor webhook succeeds.
         """
-        user_id = self.lookup_user_id(user_email)
-        if not user_id:
-            return {"ok": False, "error": f"user_not_found: {user_email}"}
+        sender_email = config.get("teams.sender_email", "")
+        graph_ok = False
 
-        # Get the app's service principal ID for the 1:1 chat
-        # We need to use the installedApps approach or create a chat
-        # between the app (as a bot) and the user.
-        # Simpler approach: use the /chats endpoint with delegated-like app permissions.
+        # ── Try Graph API DM first ────────────────────────────────
+        if sender_email:
+            try:
+                sender_id = self.lookup_user_id(sender_email)
+                recipient_id = self.lookup_user_id(user_email)
 
-        try:
-            # Create a 1:1 chat between the app and the user
-            # This requires Chat.Create application permission
-            app_id = config.get("teams.client_id") or config.get("entra.client_id", "")
+                # Create (or get existing) 1:1 chat between two real users
+                chat_payload = {
+                    "chatType": "oneOnOne",
+                    "members": [
+                        {
+                            "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                            "roles": ["owner"],
+                            "user@odata.bind": f"https://graph.microsoft.com/v1.0/users('{sender_id}')",
+                        },
+                        {
+                            "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                            "roles": ["owner"],
+                            "user@odata.bind": f"https://graph.microsoft.com/v1.0/users('{recipient_id}')",
+                        },
+                    ],
+                }
 
-            chat_payload = {
-                "chatType": "oneOnOne",
-                "members": [
-                    {
-                        "@odata.type": "#microsoft.graph.aadUserConversationMember",
-                        "roles": ["owner"],
-                        "user@odata.bind": f"https://graph.microsoft.com/v1.0/users('{user_id}')",
-                    },
-                    {
-                        "@odata.type": "#microsoft.graph.aadUserConversationMember",
-                        "roles": ["owner"],
-                        "user@odata.bind": f"https://graph.microsoft.com/v1.0/users('{app_id}')",
-                    },
-                ],
-            }
-
-            resp = requests.post(
-                f"{GRAPH_API}/chats",
-                headers=self._graph_headers(),
-                json=chat_payload,
-                timeout=15,
-            )
-
-            if resp.status_code not in (200, 201):
-                # DM not available — fall back to webhook with @mention
-                logger.warning(
-                    "Teams DM creation failed (%s) — falling back to webhook for %s",
-                    resp.status_code, user_email,
+                resp = requests.post(
+                    f"{GRAPH_API}/chats",
+                    headers=self._graph_headers(),
+                    json=chat_payload,
+                    timeout=15,
                 )
-                return self.post_webhook(f"**@{user_email}**\n\n{text}")
 
-            chat_id = resp.json()["id"]
+                if resp.status_code in (200, 201):
+                    chat_id = resp.json()["id"]
 
-            # Send message in the chat
-            msg_resp = requests.post(
-                f"{GRAPH_API}/chats/{chat_id}/messages",
-                headers=self._graph_headers(),
-                json={
-                    "body": {
-                        "contentType": "html",
-                        "content": _markdown_to_html(text),
-                    }
-                },
-                timeout=15,
+                    # Send the message in that chat
+                    msg_resp = requests.post(
+                        f"{GRAPH_API}/chats/{chat_id}/messages",
+                        headers=self._graph_headers(),
+                        json={
+                            "body": {
+                                "contentType": "html",
+                                "content": _markdown_to_html(text),
+                            }
+                        },
+                        timeout=15,
+                    )
+
+                    if msg_resp.status_code in (200, 201):
+                        logger.info("Teams DM sent to %s (from %s)", user_email, sender_email)
+                        graph_ok = True
+                    else:
+                        logger.warning(
+                            "Teams DM message send failed (%s %s) — will try webhook",
+                            msg_resp.status_code, msg_resp.text[:200],
+                        )
+                else:
+                    logger.warning(
+                        "Teams chat creation failed (%s %s) — will try webhook",
+                        resp.status_code, resp.text[:200],
+                    )
+
+            except Exception as e:
+                logger.warning("Teams Graph DM failed for %s: %s — will try webhook", user_email, e)
+
+        if graph_ok:
+            return
+
+        # ── Fall back to webhook ──────────────────────────────────
+        webhook_url = config.get("teams.webhook_url", "")
+        if not webhook_url:
+            hint = ""
+            if not sender_email:
+                hint = " (Hint: set teams.sender_email in settings.json for Graph API DMs)"
+            raise RuntimeError(
+                f"Teams: could not DM {user_email} — Graph API DM "
+                f"{'failed' if sender_email else 'not configured (no sender_email)'} "
+                f"and no webhook_url is set.{hint}"
             )
 
-            if msg_resp.status_code in (200, 201):
-                logger.info("Teams DM sent to %s", user_email)
-                return {"ok": True}
-            else:
-                logger.error("Teams DM send failed: %s", msg_resp.status_code)
-                return self.post_webhook(f"**@{user_email}**\n\n{text}")
-
-        except Exception as e:
-            logger.error("Teams DM failed for %s: %s — falling back to webhook", user_email, e)
-            return self.post_webhook(f"**@{user_email}**\n\n{text}")
+        # Post to channel with the recipient tagged
+        logger.info("Falling back to Teams webhook for %s", user_email)
+        self.post_webhook(f"**@{user_email}**\n\n{text}")
 
     # ──────────────────────────────────────────────────────────────
     # Connection test
@@ -257,7 +274,22 @@ class TeamsClient:
             results["graph_api"] = False
             results["graph_error"] = str(e)
 
+        # Test sender lookup
+        sender_email = config.get("teams.sender_email", "")
+        if sender_email and results["graph_api"]:
+            try:
+                self.lookup_user_id(sender_email)
+                results["sender_ok"] = True
+            except Exception as e:
+                results["sender_ok"] = False
+                results["sender_error"] = str(e)
+        else:
+            results["sender_ok"] = False
+            if not sender_email:
+                results["sender_error"] = "teams.sender_email not set — Graph DMs disabled"
+
         results["connected"] = results["webhook"] or results["graph_api"]
+        results["dm_capable"] = results["graph_api"] and results.get("sender_ok", False)
         return results
 
 
