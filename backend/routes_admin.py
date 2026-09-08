@@ -312,6 +312,94 @@ def get_audit_actions():
     return jsonify({'actions': [r['action'] for r in rows]})
 
 
+# ── Entra ID User Directory ─────────────────────────────────────────────────
+
+@admin_bp.route('/entra-users', methods=['GET'])
+@login_required
+@role_required(['admin', 'hr'])
+def list_entra_users():
+    """
+    Fetch celito.net users from Microsoft Entra ID via Graph API.
+
+    Uses the Client Credentials flow (app-level permission User.Read.All)
+    to list all users whose mail ends with @celito.net, excluding
+    resource accounts (meeting rooms, shared mailboxes without a surname).
+    Results are cached for 10 minutes.
+    """
+    import time
+    import requests as req
+    from .config import config
+
+    # Simple in-memory cache
+    cache = getattr(list_entra_users, '_cache', None)
+    if cache and time.time() - cache['ts'] < 600:
+        return jsonify(cache['data'])
+
+    try:
+        tenant_id = config.get('entra.tenant_id', '')
+        client_id = config.get('entra.client_id', '')
+        client_secret = config.get('entra.client_secret', '')
+
+        # Get app-level token via Client Credentials
+        token_resp = req.post(
+            f'https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token',
+            data={
+                'grant_type': 'client_credentials',
+                'client_id': client_id,
+                'client_secret': client_secret,
+                'scope': 'https://graph.microsoft.com/.default',
+            },
+            timeout=15,
+        )
+        token_resp.raise_for_status()
+        access_token = token_resp.json()['access_token']
+
+        # Query Graph for celito.net users — filter out rooms/resources
+        # accountEnabled eq true filters out disabled accounts
+        graph_url = (
+            "https://graph.microsoft.com/v1.0/users"
+            "?$filter=accountEnabled eq true and endsWith(mail,'@celito.net')"
+            "&$select=id,displayName,mail,jobTitle,department"
+            "&$top=999"
+            "&$orderby=displayName"
+            "&$count=true"
+        )
+        graph_resp = req.get(
+            graph_url,
+            headers={
+                'Authorization': f'Bearer {access_token}',
+                'ConsistencyLevel': 'eventual',
+            },
+            timeout=15,
+        )
+        graph_resp.raise_for_status()
+        raw_users = graph_resp.json().get('value', [])
+
+        # Filter out meeting rooms and resource accounts:
+        # - Must have a displayName with a space (first + last name)
+        # - Must have a mail address
+        users = [
+            {
+                'email': u['mail'].lower(),
+                'display_name': u['displayName'],
+                'job_title': u.get('jobTitle') or '',
+                'department': u.get('department') or '',
+            }
+            for u in raw_users
+            if u.get('mail')
+            and ' ' in (u.get('displayName') or '')
+        ]
+
+        # Cache the results
+        list_entra_users._cache = {'ts': time.time(), 'data': users}
+
+        return jsonify(users)
+
+    except Exception as e:
+        logger.error(f"Failed to fetch Entra users: {e}")
+        return jsonify({'error': f'Could not load Entra users: {str(e)}'}), 500
+
+
 # ── Integration Tests ────────────────────────────────────────────────────────
 
 @admin_bp.route('/test-salesforce', methods=['POST'])
