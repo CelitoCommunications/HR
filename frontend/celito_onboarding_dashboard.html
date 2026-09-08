@@ -1248,7 +1248,7 @@ function showModal(title, contentHtml, options = {}) {
     const footer = document.getElementById('modal-footer');
     if (options.footer) { footer.innerHTML = options.footer; footer.style.display = ''; }
     else { footer.style.display = 'none'; }
-    modal.style.maxWidth = options.wide ? '800px' : '560px';
+    modal.style.maxWidth = options.width || (options.wide ? '800px' : '560px');
     overlay.setAttribute('aria-label', title);
     overlay.classList.add('open');
     // Focus trap
@@ -3287,20 +3287,20 @@ function showNewTemplateChooser() {
     showModal('New Template', `
         <p style="margin-bottom:16px;color:var(--text-light);font-size:13px">How would you like to start?</p>
         <div style="display:grid;gap:12px">
-            <button class="btn btn-secondary" onclick="closeModal();loadTemplateFromDefaults()" style="text-align:left;padding:16px;height:auto">
-                <strong style="display:block;margin-bottom:4px">📋 Start from defaults</strong>
+            <button class="btn btn-secondary" onclick="closeModal();loadTemplateFromDefaults()" style="text-align:left;padding:16px;height:auto;line-height:1.4">
+                <strong style="display:block;margin-bottom:2px">📋 Start from defaults</strong>
                 <span style="font-size:12px;opacity:0.7">Pre-load the built-in onboarding tasks, then add/remove as needed</span>
             </button>
-            <button class="btn btn-secondary" onclick="closeModal();showCloneTemplateChooser()" style="text-align:left;padding:16px;height:auto" id="btn-clone-existing">
-                <strong style="display:block;margin-bottom:4px">📑 Clone existing template</strong>
+            <button class="btn btn-secondary" onclick="closeModal();showCloneTemplateChooser()" style="text-align:left;padding:16px;height:auto;line-height:1.4" id="btn-clone-existing">
+                <strong style="display:block;margin-bottom:2px">📑 Clone existing template</strong>
                 <span style="font-size:12px;opacity:0.7">Copy all tasks from an existing template as a starting point</span>
             </button>
-            <button class="btn btn-secondary" onclick="closeModal();showTemplateEditor(null, [])" style="text-align:left;padding:16px;height:auto">
-                <strong style="display:block;margin-bottom:4px">✨ Start from scratch</strong>
+            <button class="btn btn-secondary" onclick="closeModal();showTemplateEditor(null, [])" style="text-align:left;padding:16px;height:auto;line-height:1.4">
+                <strong style="display:block;margin-bottom:2px">✨ Start from scratch</strong>
                 <span style="font-size:12px;opacity:0.7">Build a brand new template with no pre-loaded tasks</span>
             </button>
         </div>
-    `, { width: '480px' });
+    `, { width: '520px' });
 }
 
 async function loadTemplateFromDefaults() {
