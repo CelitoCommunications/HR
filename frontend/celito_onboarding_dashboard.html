@@ -5818,12 +5818,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     try {
-        const user = await api('/api/me/profile');
-        if (!user) return;
-        state.user = user;
-        document.getElementById('user-name').textContent = user.display_name || user.email;
-        document.getElementById('user-role').textContent = user.role || '';
-        document.getElementById('user-avatar').textContent = initials(user.display_name || user.email);
+        const profileData = await api('/api/me/profile');
+        if (!profileData) return;
+        // Flatten: merge the nested user record into top-level for easy access
+        const u = profileData.user || {};
+        state.user = {
+            ...u,
+            employee: profileData.employee,
+            buddy: profileData.buddy,
+            hr_owner: profileData.hr_owner,
+            cohort: profileData.cohort,
+            current_phase: profileData.current_phase,
+        };
+        document.getElementById('user-name').textContent = u.display_name || u.email || '';
+        document.getElementById('user-role').textContent = u.role || '';
+        document.getElementById('user-avatar').textContent = initials(u.display_name || u.email || '');
         setupImpersonation();
         buildNavigation();
 
