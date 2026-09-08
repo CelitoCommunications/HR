@@ -1536,14 +1536,19 @@ async function renderDashboard(el) {
 
         ${isRole('admin','hr') ? `<div class="card" style="margin-bottom:16px">
             <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-                <h2>💬 Slack Notifications</h2>
-                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <h2>💬 Notifications</h2>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                    <select id="notifyChannel" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+                        <option value="slack">Slack</option>
+                        <option value="teams">Teams</option>
+                        <option value="both">Both</option>
+                    </select>
                     <button class="btn btn-sm" onclick="sendManagerSynopsis()" style="background:#4A154B;color:#fff;font-size:12px;padding:4px 14px">📊 Manager Synopsis</button>
                     <button class="btn btn-sm" onclick="sendEmployeeUpdates()" style="background:#4A154B;color:#fff;font-size:12px;padding:4px 14px">📋 Employee Updates</button>
                     <button class="btn btn-sm" onclick="sendDailyDigest()" style="background:#4A154B;color:#fff;font-size:12px;padding:4px 14px">📅 Daily Digest</button>
                 </div>
             </div>
-            <p style="font-size:12px;color:var(--text-light);padding:0 16px 12px">Send Slack DMs to managers with their team onboarding progress, or to employees with their personal task updates.</p>
+            <p style="font-size:12px;color:var(--text-light);padding:0 16px 12px">Send DMs to managers with their team onboarding progress, or to employees with their personal task updates. Choose your channel above.</p>
         </div>` : ''}
 
         <div class="metrics-strip">
@@ -2119,8 +2124,8 @@ async function renderEmployeeDetail(el) {
             <button class="btn btn-secondary" onclick="generateWelcomeLetter(${id})">📄 Welcome Letter</button>
             <button class="btn btn-secondary" onclick="syncSalesforce(${id})">☁️ Sync SF</button>
             <button class="btn btn-secondary" onclick="notifySlack(${id})">💬 Slack</button>
-            <button class="btn btn-secondary" onclick="sendEmployeeUpdates(${id})" title="Send this employee their progress via Slack DM">📋 DM Progress</button>
-            ${emp.manager_email ? `<button class="btn btn-secondary" onclick="sendManagerSynopsis('${esc(emp.manager_email)}')" title="Send their manager an onboarding synopsis via Slack DM">📊 DM Manager</button>` : ''}
+            <button class="btn btn-secondary" onclick="sendEmployeeUpdates(${id})" title="Send this employee their progress via DM">📋 DM Progress</button>
+            ${emp.manager_email ? `<button class="btn btn-secondary" onclick="sendManagerSynopsis('${esc(emp.manager_email)}')" title="Send their manager an onboarding synopsis via DM">📊 DM Manager</button>` : ''}
             <button class="btn btn-secondary" onclick="generateChecklist(${id})">🤖 AI Checklist</button>
         </div>` : ''}
 
@@ -2716,12 +2721,23 @@ async function sendBulkReminders() {
     }
 }
 
+function _getNotifyChannel() {
+    const sel = document.getElementById('notifyChannel');
+    return sel ? sel.value : 'slack';
+}
+
+function _channelLabel(via) {
+    return via === 'both' ? 'Slack + Teams' : via === 'teams' ? 'Teams' : 'Slack';
+}
+
 async function sendManagerSynopsis(managerEmail) {
+    const via = _getNotifyChannel();
     const target = managerEmail ? `to ${managerEmail}` : 'to all managers with active onboardings';
-    if (!confirm(`Send onboarding synopsis via Slack ${target}?`)) return;
+    if (!confirm(`Send onboarding synopsis via ${_channelLabel(via)} ${target}?`)) return;
     try {
-        const body = managerEmail ? { manager_email: managerEmail } : {};
-        const res = await api('/api/admin/slack/manager-synopsis', { method: 'POST', body });
+        const body = { via };
+        if (managerEmail) body.manager_email = managerEmail;
+        const res = await api('/api/admin/notify/manager-synopsis', { method: 'POST', body });
         showToast(res.message || 'Manager synopsis sent!', 'success');
     } catch (e) {
         showToast('Failed to send synopsis: ' + (e.message || 'Unknown error'), 'error');
@@ -2729,11 +2745,13 @@ async function sendManagerSynopsis(managerEmail) {
 }
 
 async function sendEmployeeUpdates(employeeId) {
+    const via = _getNotifyChannel();
     const target = employeeId ? 'to this employee' : 'to all active onboarding employees';
-    if (!confirm(`Send progress update via Slack ${target}?`)) return;
+    if (!confirm(`Send progress update via ${_channelLabel(via)} ${target}?`)) return;
     try {
-        const body = employeeId ? { employee_id: employeeId } : {};
-        const res = await api('/api/admin/slack/employee-updates', { method: 'POST', body });
+        const body = { via };
+        if (employeeId) body.employee_id = employeeId;
+        const res = await api('/api/admin/notify/employee-updates', { method: 'POST', body });
         showToast(res.message || 'Employee updates sent!', 'success');
     } catch (e) {
         showToast('Failed to send updates: ' + (e.message || 'Unknown error'), 'error');
@@ -2741,9 +2759,10 @@ async function sendEmployeeUpdates(employeeId) {
 }
 
 async function sendDailyDigest() {
-    if (!confirm('Send daily task digest to all users with due/overdue tasks?')) return;
+    const via = _getNotifyChannel();
+    if (!confirm(`Send daily task digest via ${_channelLabel(via)} to all users with due/overdue tasks?`)) return;
     try {
-        const res = await api('/api/admin/tasks/daily-digest', { method: 'POST' });
+        const res = await api('/api/admin/tasks/daily-digest', { method: 'POST', body: { via } });
         showToast(res.message || 'Daily digest sent!', 'success');
     } catch (e) {
         showToast('Failed to send digest: ' + (e.message || 'Unknown error'), 'error');
@@ -3960,6 +3979,8 @@ async function switchAdminTab(tab) {
                 <button class="btn btn-sm btn-secondary" onclick="testIntegration('salesforce')">Test</button></div>
             <div class="integration-card"><div class="int-icon">💬</div><div class="int-info"><h4>Slack</h4><div class="int-status" id="slack-status">Click Test to verify</div></div>
                 <button class="btn btn-sm btn-secondary" onclick="testIntegration('slack')">Test</button></div>
+            <div class="integration-card"><div class="int-icon">🟣</div><div class="int-info"><h4>Microsoft Teams</h4><div class="int-status" id="teams-status">Click Test to verify</div></div>
+                <button class="btn btn-sm btn-secondary" onclick="testIntegration('teams')">Test</button></div>
             <div class="integration-card"><div class="int-icon">🤖</div><div class="int-info"><h4>Claude AI</h4><div class="int-status" id="ai-status">Click Test to verify</div></div>
                 <button class="btn btn-sm btn-secondary" onclick="testIntegration('anthropic')">Test</button></div>`;
     } else if (tab === 'audit') {
@@ -4262,7 +4283,23 @@ async function updateUserRole(id, role, name) {
     if (r) { showToast(role === 'disabled' ? 'User disabled' : 'Role updated'); switchAdminTab('users'); }
 }
 function impersonateUser(name) { window.location.search = '?as=' + encodeURIComponent(name); }
-async function testIntegration(type) { showToast('Testing...', 'info'); const r = await api('/api/admin/test-' + type, { method: 'POST' }); if (r?.connected) showToast(type + ' connected!'); else showToast(type + ' failed', 'error'); }
+async function testIntegration(type) {
+    showToast('Testing ' + type + '...', 'info');
+    const statusEl = document.getElementById(type + '-status') || document.getElementById(type.replace('salesforce','sf') + '-status');
+    try {
+        const r = await api('/api/admin/test-' + type, { method: 'POST' });
+        if (r?.connected) {
+            showToast(type + ' connected!', 'success');
+            if (statusEl) { statusEl.textContent = '✅ Connected'; statusEl.style.color = 'var(--success, #27ae60)'; }
+        } else {
+            showToast(type + ' not connected', 'error');
+            if (statusEl) { statusEl.textContent = '❌ Not connected'; statusEl.style.color = 'var(--danger, #e74c3c)'; }
+        }
+    } catch (e) {
+        showToast(type + ' test failed: ' + (e.message || ''), 'error');
+        if (statusEl) { statusEl.textContent = '❌ Error'; statusEl.style.color = 'var(--danger, #e74c3c)'; }
+    }
+}
 
 /* =============================================================
    TEAM REPORTS (MANAGER)

@@ -21,6 +21,13 @@
         "hr_onboarding_channel": "#hr-onboarding",
         "hr_offboarding_channel": "#hr-offboarding"
     },
+    "teams": {
+        "webhook_url": "",
+        "tenant_id": "",
+        "client_id": "",
+        "client_secret": "",
+        "hr_channel_webhook": ""
+    },
     "anthropic": {
         "api_key": "YOUR_ANTHROPIC_API_KEY",
         "model": "claude-sonnet-4-6"

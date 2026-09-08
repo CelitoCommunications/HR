@@ -455,6 +455,43 @@ def test_slack():
         return jsonify({'status': 'error', 'message': f'Connection failed: {str(e)}'}), 500
 
 
+@admin_bp.route('/test-teams', methods=['POST'])
+@login_required
+@role_required(['admin'])
+def test_teams():
+    """Test the Microsoft Teams connection."""
+    try:
+        from .teams_client import TeamsClient
+
+        teams = TeamsClient()
+        result = teams.test_connection()
+
+        if result.get('connected'):
+            _audit('test_teams', 'integration', None, {'status': 'success', **result})
+            parts = []
+            if result.get('webhook'):
+                parts.append('Webhook ready')
+            if result.get('graph_api'):
+                parts.append('Graph API connected (DMs enabled)')
+            return jsonify({
+                'status': 'connected',
+                'connected': True,
+                'message': f"Teams: {', '.join(parts)}",
+                'details': result,
+            })
+        else:
+            _audit('test_teams', 'integration', None, {'status': 'failed', **result})
+            return jsonify({
+                'status': 'error',
+                'message': 'Teams not configured — add webhook_url or Graph API credentials',
+                'details': result,
+            }), 500
+    except Exception as e:
+        logger.error(f"Teams connection test failed: {e}")
+        _audit('test_teams', 'integration', None, {'status': 'failed', 'error': str(e)})
+        return jsonify({'status': 'error', 'message': f'Connection failed: {str(e)}'}), 500
+
+
 @admin_bp.route('/test-anthropic', methods=['POST'])
 @login_required
 @role_required(['admin'])
@@ -1534,21 +1571,68 @@ def bulk_remind():
     })
 
 
+# ── Notification dispatcher ───────────────────────────────────────────────
+
+def _get_notify_clients(via):
+    """
+    Return a list of (label, client) tuples based on the ``via`` parameter.
+
+    ``via`` may be ``"slack"``, ``"teams"``, or ``"both"`` (default ``"slack"``).
+    Raises ValueError if the requested channel is not configured.
+    """
+    via = (via or 'slack').lower().strip()
+    clients = []
+
+    if via in ('slack', 'both'):
+        from .slack_client import SlackClient
+        clients.append(('slack', SlackClient()))
+
+    if via in ('teams', 'both'):
+        from .teams_client import TeamsClient
+        clients.append(('teams', TeamsClient()))
+
+    if not clients:
+        raise ValueError(f"Invalid notification channel: {via}")
+
+    return clients
+
+
+def _send_notification(email, text, via='slack'):
+    """
+    Send a DM to *email* via the channel(s) indicated by *via*.
+
+    Returns a dict ``{'sent': [...], 'failed': [...]}``.
+    """
+    results = {'sent': [], 'failed': []}
+    for label, client in _get_notify_clients(via):
+        try:
+            client.send_dm(email, text)
+            results['sent'].append(label)
+        except Exception as e:
+            results['failed'].append({'channel': label, 'error': str(e)})
+    return results
+
+
 @admin_bp.route('/tasks/daily-digest', methods=['POST'])
 @login_required
 @role_required(['admin'])
 def send_daily_digest():
     """
-    Send a Slack DM digest to every user who has overdue or due-today tasks.
+    Send a DM digest to every user who has overdue or due-today tasks.
 
     Intended to be triggered by a daily cron job or manually by an admin
     from the Admin panel.  Groups by assignee so each person gets one DM.
+
+    Optional JSON body:
+        via: "slack" | "teams" | "both" (default "slack")
     """
+    data = request.get_json(silent=True) or {}
+    via = data.get('via', 'slack')
+
     try:
-        from .slack_client import SlackClient
-        slack = SlackClient()
+        notify_clients = _get_notify_clients(via)
     except Exception as e:
-        return jsonify({'error': f'Slack not configured: {str(e)}'}), 503
+        return jsonify({'error': str(e)}), 503
 
     db = get_db()
     try:
@@ -1576,42 +1660,44 @@ def send_daily_digest():
             parts.append(f"🟡 *{row['due_today']} due today*")
         if not parts:
             continue
-        try:
-            slack.send_dm(
-                row['assigned_email'],
-                f"📋 *Daily Task Digest*\n\n"
-                f"You have {' and '.join(parts)} in the onboarding portal.\n\n"
-                f"👉 https://onboard.celito.net/#tasks",
-            )
+        msg = (
+            f"📋 *Daily Task Digest*\n\n"
+            f"You have {' and '.join(parts)} in the onboarding portal.\n\n"
+            f"👉 https://dash.celito.net/onboard/#tasks"
+        )
+        result = _send_notification(row['assigned_email'], msg, via)
+        if result['sent']:
             sent += 1
-        except Exception as e:
-            failed.append({'email': row['assigned_email'], 'error': str(e)})
+        if result['failed']:
+            failed.append({'email': row['assigned_email'], 'errors': result['failed']})
 
-    _audit('daily_digest', 'tasks', None, {'sent': sent, 'failed': len(failed)})
+    _audit('daily_digest', 'tasks', None, {'sent': sent, 'failed': len(failed), 'via': via})
     return jsonify({
-        'message': f'Sent daily digest to {sent} user(s)',
+        'message': f'Sent daily digest to {sent} user(s) via {via}',
         'sent': sent,
         'failed': failed,
     })
 
 
-@admin_bp.route('/slack/manager-synopsis', methods=['POST'])
+@admin_bp.route('/notify/manager-synopsis', methods=['POST'])
+@admin_bp.route('/slack/manager-synopsis', methods=['POST'])  # backward compat
 @login_required
 @role_required(['admin', 'hr'])
-def slack_manager_synopsis():
-    """Send each manager a Slack DM summarizing their direct reports' onboarding progress.
+def manager_synopsis():
+    """Send each manager a DM summarizing their direct reports' onboarding progress.
 
     Optional JSON body:
         manager_email: send only to this manager (otherwise all managers)
+        via: "slack" | "teams" | "both" (default "slack")
     """
-    try:
-        from .slack_client import SlackClient
-        slack = SlackClient()
-    except Exception as e:
-        return jsonify({'error': f'Slack not configured: {str(e)}'}), 503
-
     data = request.get_json(silent=True) or {}
+    via = data.get('via', 'slack')
     single_manager = (data.get('manager_email') or '').strip().lower()
+
+    try:
+        _get_notify_clients(via)  # validate early
+    except Exception as e:
+        return jsonify({'error': str(e)}), 503
 
     db = get_db()
     try:
@@ -1692,42 +1778,45 @@ def slack_manager_synopsis():
         message = header + "\n\n".join(lines)
         message += f"\n\n👉 <https://dash.celito.net/onboard/#dashboard|Open Onboarding Portal>"
 
-        try:
-            slack.send_dm(mgr_email, message)
+        result = _send_notification(mgr_email, message, via)
+        if result['sent']:
             sent += 1
-        except Exception as e:
-            failed.append({'email': mgr_email, 'error': str(e)})
+        if result['failed']:
+            failed.append({'email': mgr_email, 'errors': result['failed']})
 
-    _audit('slack_manager_synopsis', 'slack', None, {
-        'sent': sent, 'failed': len(failed),
+    _audit('manager_synopsis', 'notification', None, {
+        'sent': sent, 'failed': len(failed), 'via': via,
         'employees': len(rows), 'managers': len(by_manager),
     })
 
     return jsonify({
-        'message': f'Sent synopsis to {sent} manager(s) covering {len(rows)} employee(s)',
+        'message': f'Sent synopsis to {sent} manager(s) covering {len(rows)} employee(s) via {via}',
         'sent': sent,
+        'via': via,
         'managers': list(by_manager.keys()),
         'failed': failed,
     })
 
 
-@admin_bp.route('/slack/employee-updates', methods=['POST'])
+@admin_bp.route('/notify/employee-updates', methods=['POST'])
+@admin_bp.route('/slack/employee-updates', methods=['POST'])  # backward compat
 @login_required
 @role_required(['admin', 'hr'])
-def slack_employee_updates():
-    """Send each onboarding employee a Slack DM with their personal progress.
+def employee_updates():
+    """Send each onboarding employee a DM with their personal progress.
 
     Optional JSON body:
         employee_id: send only to this employee (otherwise all active)
+        via: "slack" | "teams" | "both" (default "slack")
     """
-    try:
-        from .slack_client import SlackClient
-        slack = SlackClient()
-    except Exception as e:
-        return jsonify({'error': f'Slack not configured: {str(e)}'}), 503
-
     data = request.get_json(silent=True) or {}
+    via = data.get('via', 'slack')
     single_emp_id = data.get('employee_id')
+
+    try:
+        _get_notify_clients(via)  # validate early
+    except Exception as e:
+        return jsonify({'error': str(e)}), 503
 
     db = get_db()
     try:
@@ -1812,20 +1901,21 @@ def slack_employee_updates():
     sent = 0
     failed = []
     for m in messages:
-        try:
-            slack.send_dm(m['email'], m['message'])
+        result = _send_notification(m['email'], m['message'], via)
+        if result['sent']:
             sent += 1
-        except Exception as e:
-            failed.append({'email': m['email'], 'error': str(e)})
+        if result['failed']:
+            failed.append({'email': m['email'], 'errors': result['failed']})
 
-    _audit('slack_employee_updates', 'slack', None, {
-        'sent': sent, 'failed': len(failed),
+    _audit('employee_updates', 'notification', None, {
+        'sent': sent, 'failed': len(failed), 'via': via,
         'employees': len(messages),
     })
 
     return jsonify({
-        'message': f'Sent progress updates to {sent} employee(s)',
+        'message': f'Sent progress updates to {sent} employee(s) via {via}',
         'sent': sent,
+        'via': via,
         'failed': failed,
     })
 
