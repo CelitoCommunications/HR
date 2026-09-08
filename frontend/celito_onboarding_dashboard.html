@@ -3261,64 +3261,168 @@ function exportTasksCSV() {
 async function renderTemplates(el) {
     if (!isRole('admin','hr')) { el.innerHTML = '<div class="empty-state"><h3>Access Denied</h3></div>'; return; }
     el.innerHTML = `<div class="action-bar"><h1 style="margin-bottom:0">Checklist Templates</h1>
-        <button class="btn btn-primary" onclick="showAddTemplateModal()">+ Add Template</button></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-primary" onclick="showNewTemplateChooser()">+ New Template</button>
+        </div></div>
         <div class="card" id="templates-content"><div class="loading-center"><div class="spinner lg"></div></div></div>`;
     const data = await api('/api/admin/templates');
     const templates = data?.templates || data || [];
     const content = document.getElementById('templates-content');
-    if (!templates.length) { content.innerHTML = '<div class="empty-state"><div class="icon">📋</div><h3>No templates</h3><p>Create templates to standardize onboarding/offboarding checklists.</p></div>'; return; }
+    if (!templates.length) { content.innerHTML = '<div class="empty-state"><div class="icon">📋</div><h3>No templates yet</h3><p>Create a template to customize your onboarding checklists.<br>Start from the built-in defaults or build one from scratch.</p></div>'; return; }
     content.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Name</th><th>Department</th><th>Type</th><th>Phase</th><th>Tasks</th><th>Status</th><th>Actions</th></tr></thead><tbody>${
         templates.map(t => {
-            const taskCount = t.tasks_json ? JSON.parse(t.tasks_json).length : 0;
+            const tasks = t.tasks ? t.tasks : (t.tasks_json ? JSON.parse(t.tasks_json) : []);
+            const taskCount = tasks.length;
             return `<tr><td><strong>${esc(t.name)}</strong></td><td>${esc(t.department||'All')}</td>
                 <td>${statusBadge(t.checklist_type)}</td><td>${t.phase?phaseBadge(t.phase):'—'}</td>
                 <td>${taskCount} tasks</td><td>${t.is_active?'<span class="badge badge-success">Active</span>':'<span class="badge badge-secondary">Inactive</span>'}</td>
-                <td><button class="btn btn-xs btn-secondary" onclick="duplicateTemplate(${t.id})">Duplicate</button>
+                <td style="white-space:nowrap"><button class="btn btn-xs btn-secondary" onclick="editTemplateModal(${t.id})">Edit</button>
+                    <button class="btn btn-xs btn-secondary" onclick="duplicateTemplate(${t.id})">Clone</button>
                     <button class="btn btn-xs btn-danger" onclick="deactivateTemplate(${t.id})">Deactivate</button></td></tr>`;
         }).join('')
     }</tbody></table></div>`;
 }
 
-function showAddTemplateModal() {
-    window._tplTasks = [{ title: '', category: 'hr', due_offset_days: 0 }];
-    showModal('Add Template', `
-        <div class="form-group"><label>Name <span class="required">*</span></label><input class="form-control" id="tpl-name"></div>
+function showNewTemplateChooser() {
+    showModal('New Template', `
+        <p style="margin-bottom:16px;color:var(--text-light);font-size:13px">How would you like to start?</p>
+        <div style="display:grid;gap:12px">
+            <button class="btn btn-secondary" onclick="closeModal();loadTemplateFromDefaults()" style="text-align:left;padding:16px;height:auto">
+                <strong style="display:block;margin-bottom:4px">📋 Start from defaults</strong>
+                <span style="font-size:12px;opacity:0.7">Pre-load the built-in onboarding tasks, then add/remove as needed</span>
+            </button>
+            <button class="btn btn-secondary" onclick="closeModal();showCloneTemplateChooser()" style="text-align:left;padding:16px;height:auto" id="btn-clone-existing">
+                <strong style="display:block;margin-bottom:4px">📑 Clone existing template</strong>
+                <span style="font-size:12px;opacity:0.7">Copy all tasks from an existing template as a starting point</span>
+            </button>
+            <button class="btn btn-secondary" onclick="closeModal();showTemplateEditor(null, [])" style="text-align:left;padding:16px;height:auto">
+                <strong style="display:block;margin-bottom:4px">✨ Start from scratch</strong>
+                <span style="font-size:12px;opacity:0.7">Build a brand new template with no pre-loaded tasks</span>
+            </button>
+        </div>
+    `, { width: '480px' });
+}
+
+async function loadTemplateFromDefaults() {
+    showToast('Loading defaults...', 'info');
+    const r = await api('/api/admin/templates/defaults?hire_type=full-time&location_mode=in-office');
+    if (!r || !r.tasks) { showToast('Failed to load defaults', 'error'); return; }
+    showTemplateEditor(null, r.tasks, 'Default Onboarding');
+}
+
+async function showCloneTemplateChooser() {
+    const data = await api('/api/admin/templates');
+    const templates = data?.templates || data || [];
+    if (!templates.length) { showToast('No existing templates to clone', 'warning'); return; }
+    showModal('Clone From', `
+        <p style="margin-bottom:12px;font-size:13px;color:var(--text-light)">Select a template to clone:</p>
+        <div style="display:grid;gap:8px">${templates.map(t => {
+            const tasks = t.tasks ? t.tasks : (t.tasks_json ? JSON.parse(t.tasks_json) : []);
+            return `<button class="btn btn-secondary" onclick="closeModal();cloneTemplateIntoEditor(${t.id})" style="text-align:left;padding:12px;height:auto">
+                <strong>${esc(t.name)}</strong>
+                <span style="font-size:11px;opacity:0.7;margin-left:8px">${tasks.length} tasks · ${esc(t.department||'All depts')}</span>
+            </button>`;
+        }).join('')}</div>
+    `, { width: '480px' });
+}
+
+async function cloneTemplateIntoEditor(id) {
+    const data = await api('/api/admin/templates');
+    const templates = data?.templates || data || [];
+    const tmpl = templates.find(t => t.id === id);
+    if (!tmpl) { showToast('Template not found', 'error'); return; }
+    const tasks = tmpl.tasks ? tmpl.tasks : (tmpl.tasks_json ? JSON.parse(tmpl.tasks_json) : []);
+    showTemplateEditor(null, tasks, tmpl.name + ' (Copy)');
+}
+
+async function editTemplateModal(id) {
+    const data = await api('/api/admin/templates');
+    const templates = data?.templates || data || [];
+    const tmpl = templates.find(t => t.id === id);
+    if (!tmpl) { showToast('Template not found', 'error'); return; }
+    const tasks = tmpl.tasks ? tmpl.tasks : (tmpl.tasks_json ? JSON.parse(tmpl.tasks_json) : []);
+    showTemplateEditor(tmpl, tasks, tmpl.name);
+}
+
+function showTemplateEditor(existingTmpl, tasks, defaultName) {
+    window._tplTasks = tasks.length ? tasks.map(t => ({...t})) : [{ title: '', description: '', category: 'hr', assigned_to: '', due_offset_days: 0, phase: 'company_onboarding' }];
+    window._tplEditId = existingTmpl ? existingTmpl.id : null;
+
+    const nameVal = defaultName || '';
+    const deptVal = existingTmpl?.department || '';
+    const typeVal = existingTmpl?.checklist_type || 'onboarding';
+    const phaseVal = existingTmpl?.phase || '';
+
+    showModal(existingTmpl ? 'Edit Template' : 'New Template', `
+        <div class="form-group"><label>Template Name <span class="required">*</span></label><input class="form-control" id="tpl-name" value="${esc(nameVal)}"></div>
         <div class="form-row">
             <div class="form-group"><label>Department</label>
-                <select class="form-control" id="tpl-dept"><option value="">All Departments</option>${DEPARTMENTS.map(d=>`<option>${esc(d)}</option>`).join('')}</select></div>
+                <select class="form-control" id="tpl-dept"><option value="">All Departments</option>${DEPARTMENTS.map(d=>`<option ${d===deptVal?'selected':''}>${esc(d)}</option>`).join('')}</select></div>
             <div class="form-group"><label>Type</label>
-                <select class="form-control" id="tpl-type"><option value="onboarding">Onboarding</option><option value="offboarding">Offboarding</option></select></div>
+                <select class="form-control" id="tpl-type"><option value="onboarding" ${typeVal==='onboarding'?'selected':''}>Onboarding</option><option value="offboarding" ${typeVal==='offboarding'?'selected':''}>Offboarding</option></select></div>
         </div>
-        <div class="form-group"><label>Phase</label>
-            <select class="form-control" id="tpl-phase"><option value="">All</option>${PHASE_ORDER.map(p=>`<option value="${p}">${PHASE_LABELS[p]}</option>`).join('')}</select></div>
         <div class="form-group">
-            <label>Tasks</label>
-            <div id="tpl-tasks-list"></div>
-            <button type="button" class="btn btn-sm btn-secondary" onclick="addTemplateTaskRow()" style="margin-top:8px">+ Add Task</button>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <label style="margin:0">Tasks <span style="font-size:11px;color:var(--text-light)">(${window._tplTasks.length})</span></label>
+                <div style="display:flex;gap:6px">
+                    <input class="form-control" id="tpl-search" placeholder="Filter tasks..." style="width:180px;font-size:12px;padding:4px 8px">
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="addTemplateTaskRow()">+ Add Task</button>
+                </div>
+            </div>
+            <div id="tpl-tasks-list" style="max-height:400px;overflow-y:auto"></div>
         </div>
     `, { footer: `<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                   <button class="btn btn-primary" onclick="saveTemplate()">Save</button>`, width: '700px' });
+                   <button class="btn btn-primary" onclick="saveTemplate()">${existingTmpl ? 'Update' : 'Save'} Template</button>`, width: '800px' });
+
     renderTemplateTaskRows();
+
+    document.getElementById('tpl-search')?.addEventListener('input', function() {
+        const q = this.value.toLowerCase();
+        document.querySelectorAll('[data-tpl-task-row]').forEach(row => {
+            const title = row.querySelector('input')?.value?.toLowerCase() || '';
+            row.style.display = !q || title.includes(q) ? '' : 'none';
+        });
+    });
 }
 
 function renderTemplateTaskRows() {
     const container = document.getElementById('tpl-tasks-list');
     if (!container) return;
     const cats = Object.entries(CATEGORY_LABELS);
+    const phaseOpts = PHASE_ORDER.map(p => `<option value="${p}">${PHASE_LABELS[p]}</option>`).join('');
+
     container.innerHTML = window._tplTasks.map((t, i) => `
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;padding:8px;background:var(--bg);border-radius:var(--radius-sm)">
-            <input class="form-control" placeholder="Task title" value="${esc(t.title)}" onchange="window._tplTasks[${i}].title=this.value" style="flex:2">
-            <select class="form-control" onchange="window._tplTasks[${i}].category=this.value" style="flex:1">
+        <div data-tpl-task-row="${i}" style="display:flex;gap:6px;align-items:start;margin-bottom:4px;padding:8px;background:var(--bg);border-radius:var(--radius-sm);font-size:12px">
+            <div style="flex:3;display:grid;gap:4px">
+                <input class="form-control" placeholder="Task title" value="${esc(t.title)}" onchange="window._tplTasks[${i}].title=this.value" style="font-size:12px;font-weight:500">
+                <input class="form-control" placeholder="Description (optional)" value="${esc(t.description||'')}" onchange="window._tplTasks[${i}].description=this.value" style="font-size:11px;color:var(--text-light)">
+            </div>
+            <select class="form-control" onchange="window._tplTasks[${i}].category=this.value" style="width:85px;font-size:11px">
                 ${cats.map(([k,v])=>`<option value="${k}" ${t.category===k?'selected':''}>${v}</option>`).join('')}
             </select>
-            <input class="form-control" type="number" placeholder="Days" title="Due offset (days from start)" value="${t.due_offset_days||0}" onchange="window._tplTasks[${i}].due_offset_days=parseInt(this.value)||0" style="width:65px">
-            <button type="button" class="task-action-btn delete" onclick="window._tplTasks.splice(${i},1);renderTemplateTaskRows()" title="Remove" style="font-size:16px">&times;</button>
-        </div>`).join('') || '<div style="font-size:12px;color:var(--text-light);padding:8px">No tasks added yet.</div>';
+            <input class="form-control" placeholder="Assigned" value="${esc(t.assigned_to||'')}" onchange="window._tplTasks[${i}].assigned_to=this.value" style="width:90px;font-size:11px" title="Assigned to">
+            <select class="form-control" onchange="window._tplTasks[${i}].phase=this.value" style="width:110px;font-size:11px">
+                ${PHASE_ORDER.map(p=>`<option value="${p}" ${t.phase===p?'selected':''}>${PHASE_LABELS[p]}</option>`).join('')}
+            </select>
+            <input class="form-control" type="number" placeholder="Days" title="Due offset (days from start)" value="${t.due_offset_days||0}" onchange="window._tplTasks[${i}].due_offset_days=parseInt(this.value)||0" style="width:55px;font-size:11px">
+            <div style="display:flex;flex-direction:column;gap:2px">
+                <button type="button" class="task-action-btn delete" onclick="window._tplTasks.splice(${i},1);renderTemplateTaskRows();updateTaskCount()" title="Remove" style="font-size:14px;padding:2px 4px">&times;</button>
+                ${i > 0 ? `<button type="button" style="font-size:10px;cursor:pointer;border:none;background:none;color:var(--text-light);padding:0" onclick="[window._tplTasks[${i}],window._tplTasks[${i-1}]]=[window._tplTasks[${i-1}],window._tplTasks[${i}]];renderTemplateTaskRows()" title="Move up">▲</button>` : ''}
+            </div>
+        </div>`).join('') || '<div style="font-size:12px;color:var(--text-light);padding:8px">No tasks yet. Click "+ Add Task" to begin.</div>';
+}
+
+function updateTaskCount() {
+    const label = document.querySelector('#tpl-tasks-list')?.closest('.form-group')?.querySelector('label span');
+    if (label) label.textContent = '(' + window._tplTasks.length + ')';
 }
 
 function addTemplateTaskRow() {
-    window._tplTasks.push({ title: '', category: 'hr', due_offset_days: 0 });
+    window._tplTasks.push({ title: '', description: '', category: 'hr', assigned_to: '', due_offset_days: 0, phase: 'company_onboarding' });
     renderTemplateTaskRows();
+    updateTaskCount();
+    const container = document.getElementById('tpl-tasks-list');
+    if (container) container.scrollTop = container.scrollHeight;
 }
 
 async function saveTemplate() {
@@ -3326,13 +3430,28 @@ async function saveTemplate() {
     if (!name) { showToast('Name required', 'warning'); return; }
     const tasks = (window._tplTasks || []).filter(t => t.title.trim());
     if (!tasks.length) { showToast('Add at least one task', 'warning'); return; }
-    const r = await api('/api/admin/templates', { method: 'POST', body: {
-        name, department: document.getElementById('tpl-dept')?.value, checklist_type: document.getElementById('tpl-type')?.value,
-        phase: document.getElementById('tpl-phase')?.value, tasks_json: JSON.stringify(tasks) }});
-    if (r) { showToast('Template saved'); closeModal(); renderTemplates(document.getElementById('main-content')); }
+
+    const body = {
+        name,
+        department: document.getElementById('tpl-dept')?.value,
+        checklist_type: document.getElementById('tpl-type')?.value,
+        phase: document.getElementById('tpl-phase')?.value || null,
+        tasks_json: JSON.stringify(tasks),
+    };
+
+    let r;
+    if (window._tplEditId) {
+        r = await api('/api/admin/templates/' + window._tplEditId, { method: 'PUT', body });
+    } else {
+        r = await api('/api/admin/templates', { method: 'POST', body });
+    }
+    if (r) { showToast(window._tplEditId ? 'Template updated' : 'Template created'); closeModal(); renderTemplates(document.getElementById('main-content')); }
 }
 
-async function duplicateTemplate(id) { const r = await api('/api/admin/templates/' + id + '/duplicate', { method: 'POST' }); if (r) { showToast('Template duplicated'); renderTemplates(document.getElementById('main-content')); } }
+async function duplicateTemplate(id) {
+    const r = await api('/api/admin/templates/' + id + '/duplicate', { method: 'POST' });
+    if (r) { showToast('Template cloned'); renderTemplates(document.getElementById('main-content')); }
+}
 async function deactivateTemplate(id) { confirmDialog('Deactivate this template?', async () => { const r = await api('/api/admin/templates/' + id, { method: 'DELETE' }); if (r) { showToast('Template deactivated'); renderTemplates(document.getElementById('main-content')); } }); }
 
 /* =============================================================
