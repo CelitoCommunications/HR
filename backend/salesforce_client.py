@@ -1,7 +1,7 @@
 """
 Salesforce API connector for Celito Onboarding Platform.
 
-Uses Username-Password OAuth 2.0 flow (matching other Celito apps).
+Uses Client Credentials OAuth 2.0 flow (matching other Celito apps).
 API version: v59.0
 """
 
@@ -19,7 +19,7 @@ API_VERSION = "v59.0"
 
 
 class SalesforceClient:
-    """Salesforce REST API client using Username-Password flow."""
+    """Salesforce REST API client using Client Credentials flow."""
 
     def __init__(self):
         self._access_token = None
@@ -42,12 +42,9 @@ class SalesforceClient:
         token_url = f"https://{domain}.salesforce.com/services/oauth2/token"
 
         payload = {
-            "grant_type": "password",
+            "grant_type": "client_credentials",
             "client_id": config.get("salesforce.client_id", ""),
             "client_secret": config.get("salesforce.client_secret", ""),
-            "username": config.get("salesforce.username", ""),
-            "password": config.get("salesforce.password", "")
-                       + config.get("salesforce.security_token", ""),
         }
 
         resp = requests.post(token_url, data=payload, timeout=30)
