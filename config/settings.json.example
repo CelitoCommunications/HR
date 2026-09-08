@@ -14,9 +14,10 @@
         "client_secret": ""
     },
     "slack": {
-        "bot_token": "xoxb-YOUR-BOT-TOKEN",
-        "user_token": "xoxp-YOUR-USER-TOKEN",
-        "workspace_id": "YOUR_WORKSPACE_ID",
+        "bot_token": "",
+        "signing_secret": "",
+        "bot_user_id": "",
+        "user_token": "",
         "hr_onboarding_channel": "#hr-onboarding",
         "hr_offboarding_channel": "#hr-offboarding"
     },
