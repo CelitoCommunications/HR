@@ -1595,6 +1595,241 @@ def send_daily_digest():
     })
 
 
+@admin_bp.route('/slack/manager-synopsis', methods=['POST'])
+@login_required
+@role_required(['admin', 'hr'])
+def slack_manager_synopsis():
+    """Send each manager a Slack DM summarizing their direct reports' onboarding progress.
+
+    Optional JSON body:
+        manager_email: send only to this manager (otherwise all managers)
+    """
+    try:
+        from .slack_client import SlackClient
+        slack = SlackClient()
+    except Exception as e:
+        return jsonify({'error': f'Slack not configured: {str(e)}'}), 503
+
+    data = request.get_json(silent=True) or {}
+    single_manager = (data.get('manager_email') or '').strip().lower()
+
+    db = get_db()
+    try:
+        today = date.today().isoformat()
+
+        # Get active onboardings with progress
+        query = """
+            SELECT e.id, e.first_name, e.last_name, e.email, e.department,
+                   e.role_title, e.start_date, e.manager_email, e.hire_type,
+                   c.id as checklist_id, c.current_phase,
+                   (SELECT COUNT(*) FROM tasks WHERE checklist_id = c.id) as total_tasks,
+                   (SELECT COUNT(*) FROM tasks WHERE checklist_id = c.id AND status = 'completed') as done_tasks,
+                   (SELECT COUNT(*) FROM tasks WHERE checklist_id = c.id
+                    AND status NOT IN ('completed','skipped') AND due_date < ?) as overdue_tasks
+            FROM checklists c
+            JOIN employees e ON c.employee_id = e.id
+            WHERE c.checklist_type = 'onboarding' AND c.status = 'active'
+        """
+        params = [today]
+
+        if single_manager:
+            query += " AND LOWER(e.manager_email) = ?"
+            params.append(single_manager)
+
+        query += " ORDER BY e.manager_email, e.start_date"
+        rows = db.execute(query, params).fetchall()
+    finally:
+        db.close()
+
+    if not rows:
+        return jsonify({'message': 'No active onboardings found', 'sent': 0})
+
+    # Group by manager
+    by_manager = {}
+    for r in rows:
+        mgr = (r['manager_email'] or '').lower()
+        if not mgr:
+            continue
+        if mgr not in by_manager:
+            by_manager[mgr] = []
+        by_manager[mgr].append(dict(r))
+
+    PHASE_LABELS = {
+        'pre_boarding': 'Pre-Boarding',
+        'company_onboarding': 'Week 1',
+        'department_onboarding': 'Dept Onboarding',
+        'role_training': 'Role Training',
+        'completed': 'Complete',
+    }
+
+    sent = 0
+    failed = []
+    for mgr_email, employees in by_manager.items():
+        lines = []
+        total_overdue = 0
+        for emp in employees:
+            total = emp['total_tasks'] or 0
+            done = emp['done_tasks'] or 0
+            overdue = emp['overdue_tasks'] or 0
+            total_overdue += overdue
+            pct = round((done / total * 100) if total > 0 else 0)
+            phase_label = PHASE_LABELS.get(emp['current_phase'] or '', emp['current_phase'] or '—')
+
+            bar_fill = pct // 10
+            bar = '▓' * bar_fill + '░' * (10 - bar_fill)
+
+            line = f"*{emp['first_name']} {emp['last_name']}* — {emp['role_title'] or emp['department']}\n"
+            line += f"    `{bar}` {pct}%  ·  Phase: {phase_label}  ·  {done}/{total} tasks"
+            if overdue > 0:
+                line += f"  ·  🔴 {overdue} overdue"
+            lines.append(line)
+
+        header = f"📊 *Onboarding Synopsis* — {len(employees)} active hire{'s' if len(employees) != 1 else ''}\n"
+        if total_overdue > 0:
+            header += f"⚠️ {total_overdue} total overdue task(s) across your team\n"
+        header += "\n"
+
+        message = header + "\n\n".join(lines)
+        message += f"\n\n👉 <https://dash.celito.net/onboard/#dashboard|Open Onboarding Portal>"
+
+        try:
+            slack.send_dm(mgr_email, message)
+            sent += 1
+        except Exception as e:
+            failed.append({'email': mgr_email, 'error': str(e)})
+
+    _audit('slack_manager_synopsis', 'slack', None, {
+        'sent': sent, 'failed': len(failed),
+        'employees': len(rows), 'managers': len(by_manager),
+    })
+
+    return jsonify({
+        'message': f'Sent synopsis to {sent} manager(s) covering {len(rows)} employee(s)',
+        'sent': sent,
+        'managers': list(by_manager.keys()),
+        'failed': failed,
+    })
+
+
+@admin_bp.route('/slack/employee-updates', methods=['POST'])
+@login_required
+@role_required(['admin', 'hr'])
+def slack_employee_updates():
+    """Send each onboarding employee a Slack DM with their personal progress.
+
+    Optional JSON body:
+        employee_id: send only to this employee (otherwise all active)
+    """
+    try:
+        from .slack_client import SlackClient
+        slack = SlackClient()
+    except Exception as e:
+        return jsonify({'error': f'Slack not configured: {str(e)}'}), 503
+
+    data = request.get_json(silent=True) or {}
+    single_emp_id = data.get('employee_id')
+
+    db = get_db()
+    try:
+        today = date.today().isoformat()
+
+        query = """
+            SELECT e.id, e.first_name, e.last_name, e.email, e.department,
+                   e.start_date, e.manager_email,
+                   c.id as checklist_id, c.current_phase
+            FROM checklists c
+            JOIN employees e ON c.employee_id = e.id
+            WHERE c.checklist_type = 'onboarding' AND c.status = 'active'
+        """
+        params = []
+        if single_emp_id:
+            query += " AND e.id = ?"
+            params.append(single_emp_id)
+
+        employees = db.execute(query, params).fetchall()
+
+        messages = []
+        for emp in employees:
+            if not emp['email']:
+                continue
+
+            # Get task breakdown
+            tasks = db.execute("""
+                SELECT t.title, t.status, t.due_date, t.phase,
+                       t.category, t.assigned_to
+                FROM tasks t
+                WHERE t.checklist_id = ?
+                ORDER BY t.due_date, t.sort_order
+            """, (emp['checklist_id'],)).fetchall()
+
+            total = len(tasks)
+            completed = sum(1 for t in tasks if t['status'] == 'completed')
+            overdue = [t for t in tasks if t['status'] not in ('completed', 'skipped')
+                       and t['due_date'] and t['due_date'] < today]
+            upcoming = [t for t in tasks if t['status'] not in ('completed', 'skipped')
+                        and t['due_date'] and t['due_date'] >= today][:5]
+
+            pct = round((completed / total * 100) if total > 0 else 0)
+            bar_fill = pct // 10
+            bar = '▓' * bar_fill + '░' * (10 - bar_fill)
+
+            PHASE_LABELS = {
+                'pre_boarding': 'Pre-Boarding',
+                'company_onboarding': 'Week 1',
+                'department_onboarding': 'Dept Onboarding',
+                'role_training': 'Role Training',
+            }
+            phase_label = PHASE_LABELS.get(emp['current_phase'] or '', emp['current_phase'] or '—')
+
+            # Build message
+            msg = f"👋 Hi {emp['first_name']}! Here's your onboarding progress:\n\n"
+            msg += f"`{bar}` *{pct}% complete* ({completed}/{total} tasks)\n"
+            msg += f"📍 Current phase: *{phase_label}*\n"
+
+            if overdue:
+                msg += f"\n🔴 *{len(overdue)} overdue task(s):*\n"
+                for t in overdue[:5]:
+                    days_late = (date.fromisoformat(today) - date.fromisoformat(t['due_date'])).days
+                    msg += f"  • {t['title']} — {days_late}d overdue\n"
+                if len(overdue) > 5:
+                    msg += f"  _...and {len(overdue) - 5} more_\n"
+
+            if upcoming:
+                msg += f"\n📋 *Coming up next:*\n"
+                for t in upcoming:
+                    due_str = t['due_date']
+                    msg += f"  • {t['title']} — due {due_str}\n"
+
+            if not overdue and not upcoming:
+                msg += "\n✅ No pending tasks right now — great job!\n"
+
+            msg += f"\n👉 <https://dash.celito.net/onboard/#tasks|View your tasks>"
+
+            messages.append({'email': emp['email'], 'message': msg, 'emp_id': emp['id']})
+    finally:
+        db.close()
+
+    sent = 0
+    failed = []
+    for m in messages:
+        try:
+            slack.send_dm(m['email'], m['message'])
+            sent += 1
+        except Exception as e:
+            failed.append({'email': m['email'], 'error': str(e)})
+
+    _audit('slack_employee_updates', 'slack', None, {
+        'sent': sent, 'failed': len(failed),
+        'employees': len(messages),
+    })
+
+    return jsonify({
+        'message': f'Sent progress updates to {sent} employee(s)',
+        'sent': sent,
+        'failed': failed,
+    })
+
+
 @admin_bp.route('/tasks/bulk-reassign', methods=['POST'])
 @login_required
 @role_required(['admin'])

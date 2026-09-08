@@ -1534,6 +1534,18 @@ async function renderDashboard(el) {
             <div class="table-wrap" id="dash-overdue"></div>
         </div>
 
+        ${isRole('admin','hr') ? `<div class="card" style="margin-bottom:16px">
+            <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+                <h2>💬 Slack Notifications</h2>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button class="btn btn-sm" onclick="sendManagerSynopsis()" style="background:#4A154B;color:#fff;font-size:12px;padding:4px 14px">📊 Manager Synopsis</button>
+                    <button class="btn btn-sm" onclick="sendEmployeeUpdates()" style="background:#4A154B;color:#fff;font-size:12px;padding:4px 14px">📋 Employee Updates</button>
+                    <button class="btn btn-sm" onclick="sendDailyDigest()" style="background:#4A154B;color:#fff;font-size:12px;padding:4px 14px">📅 Daily Digest</button>
+                </div>
+            </div>
+            <p style="font-size:12px;color:var(--text-light);padding:0 16px 12px">Send Slack DMs to managers with their team onboarding progress, or to employees with their personal task updates.</p>
+        </div>` : ''}
+
         <div class="metrics-strip">
             <div class="metric-item"><div class="metric-value">${s.time_to_ramp_avg||s.avg_time_to_ramp||'N/A'}</div><div class="metric-label">Avg Time to Ramp (days)</div></div>
             <div class="metric-item"><div class="metric-value">${s.retention_90_day != null ? s.retention_90_day+'%' : 'N/A'}</div><div class="metric-label">90-Day Retention</div></div>
@@ -2107,6 +2119,8 @@ async function renderEmployeeDetail(el) {
             <button class="btn btn-secondary" onclick="generateWelcomeLetter(${id})">📄 Welcome Letter</button>
             <button class="btn btn-secondary" onclick="syncSalesforce(${id})">☁️ Sync SF</button>
             <button class="btn btn-secondary" onclick="notifySlack(${id})">💬 Slack</button>
+            <button class="btn btn-secondary" onclick="sendEmployeeUpdates(${id})" title="Send this employee their progress via Slack DM">📋 DM Progress</button>
+            ${emp.manager_email ? `<button class="btn btn-secondary" onclick="sendManagerSynopsis('${esc(emp.manager_email)}')" title="Send their manager an onboarding synopsis via Slack DM">📊 DM Manager</button>` : ''}
             <button class="btn btn-secondary" onclick="generateChecklist(${id})">🤖 AI Checklist</button>
         </div>` : ''}
 
@@ -2699,6 +2713,40 @@ async function sendBulkReminders() {
         showToast(res.message || 'Reminders sent to all assignees with overdue tasks!', 'success');
     } catch (e) {
         showToast('Failed to send reminders: ' + (e.message || 'Unknown error'), 'error');
+    }
+}
+
+async function sendManagerSynopsis(managerEmail) {
+    const target = managerEmail ? `to ${managerEmail}` : 'to all managers with active onboardings';
+    if (!confirm(`Send onboarding synopsis via Slack ${target}?`)) return;
+    try {
+        const body = managerEmail ? { manager_email: managerEmail } : {};
+        const res = await api('/api/admin/slack/manager-synopsis', { method: 'POST', body });
+        showToast(res.message || 'Manager synopsis sent!', 'success');
+    } catch (e) {
+        showToast('Failed to send synopsis: ' + (e.message || 'Unknown error'), 'error');
+    }
+}
+
+async function sendEmployeeUpdates(employeeId) {
+    const target = employeeId ? 'to this employee' : 'to all active onboarding employees';
+    if (!confirm(`Send progress update via Slack ${target}?`)) return;
+    try {
+        const body = employeeId ? { employee_id: employeeId } : {};
+        const res = await api('/api/admin/slack/employee-updates', { method: 'POST', body });
+        showToast(res.message || 'Employee updates sent!', 'success');
+    } catch (e) {
+        showToast('Failed to send updates: ' + (e.message || 'Unknown error'), 'error');
+    }
+}
+
+async function sendDailyDigest() {
+    if (!confirm('Send daily task digest to all users with due/overdue tasks?')) return;
+    try {
+        const res = await api('/api/admin/tasks/daily-digest', { method: 'POST' });
+        showToast(res.message || 'Daily digest sent!', 'success');
+    } catch (e) {
+        showToast('Failed to send digest: ' + (e.message || 'Unknown error'), 'error');
     }
 }
 
