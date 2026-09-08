@@ -3731,105 +3731,6 @@ def list_templates():
         db.close()
 
 
-@mgr_bp.route('/templates', methods=['POST'])
-@login_required
-@role_required(['admin'])
-def create_template():
-    """Create a checklist template."""
-    data = request.get_json(silent=True)
-    if not data or not data.get('name') or not data.get('tasks_json'):
-        return jsonify({'error': 'name and tasks_json are required'}), 400
-
-    db = get_db()
-    try:
-        tasks_json = data['tasks_json']
-        if isinstance(tasks_json, list):
-            tasks_json = json.dumps(tasks_json)
-
-        db.execute(
-            'INSERT INTO checklist_templates (name, department, checklist_type, phase, tasks_json, '
-            'location_mode, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            (data['name'], data.get('department'), data.get('checklist_type', 'onboarding'),
-             data.get('phase', 'company_onboarding'), tasks_json,
-             data.get('location_mode', 'all'), 1, datetime.utcnow().isoformat())
-        )
-        db.commit()
-        tid = db.execute('SELECT last_insert_rowid()').fetchone()[0]
-
-        _audit('template_created', 'template', tid, {'name': data['name']})
-
-        tmpl = db.execute('SELECT * FROM checklist_templates WHERE id = ?', (tid,)).fetchone()
-        return jsonify(dict(tmpl)), 201
-    finally:
-        db.close()
-
-
-@mgr_bp.route('/templates/<int:tmpl_id>', methods=['PUT'])
-@login_required
-@role_required(['admin'])
-def update_template(tmpl_id):
-    """Update a checklist template."""
-    data = request.get_json(silent=True)
-    if not data:
-        return jsonify({'error': 'Request body required'}), 400
-
-    db = get_db()
-    try:
-        tmpl = db.execute('SELECT * FROM checklist_templates WHERE id = ?', (tmpl_id,)).fetchone()
-        if not tmpl:
-            return jsonify({'error': 'Template not found'}), 404
-
-        allowed = ['name', 'department', 'checklist_type', 'phase', 'location_mode']
-        updates = []
-        params = []
-        for field in allowed:
-            if field in data:
-                updates.append(f'{field} = ?')
-                params.append(data[field])
-
-        if 'tasks_json' in data:
-            tasks_json = data['tasks_json']
-            if isinstance(tasks_json, list):
-                tasks_json = json.dumps(tasks_json)
-            updates.append('tasks_json = ?')
-            params.append(tasks_json)
-
-        updates.append('updated_at = ?')
-        params.append(datetime.utcnow().isoformat())
-
-        params.append(tmpl_id)
-        db.execute(f'UPDATE checklist_templates SET {", ".join(updates)} WHERE id = ?', params)
-        db.commit()
-
-        _audit('template_updated', 'template', tmpl_id, data)
-
-        updated = db.execute('SELECT * FROM checklist_templates WHERE id = ?', (tmpl_id,)).fetchone()
-        return jsonify(dict(updated))
-    finally:
-        db.close()
-
-
-@mgr_bp.route('/templates/<int:tmpl_id>', methods=['DELETE'])
-@login_required
-@role_required(['admin'])
-def delete_template(tmpl_id):
-    """Deactivate a template."""
-    db = get_db()
-    try:
-        tmpl = db.execute('SELECT * FROM checklist_templates WHERE id = ?', (tmpl_id,)).fetchone()
-        if not tmpl:
-            return jsonify({'error': 'Template not found'}), 404
-
-        db.execute('UPDATE checklist_templates SET is_active = 0 WHERE id = ?', (tmpl_id,))
-        db.commit()
-
-        _audit('template_deactivated', 'template', tmpl_id, {})
-
-        return jsonify({'message': 'Template deactivated'})
-    finally:
-        db.close()
-
-
 @mgr_bp.route('/templates/defaults', methods=['GET'])
 @login_required
 @role_required(['admin', 'hr'])
@@ -3938,6 +3839,105 @@ def duplicate_template(tmpl_id):
             'SELECT * FROM checklist_templates WHERE id = ?', (new_id,)
         ).fetchone()
         return jsonify(dict(new_tmpl)), 201
+    finally:
+        db.close()
+
+
+@mgr_bp.route('/templates', methods=['POST'])
+@login_required
+@role_required(['admin'])
+def create_template():
+    """Create a checklist template."""
+    data = request.get_json(silent=True)
+    if not data or not data.get('name') or not data.get('tasks_json'):
+        return jsonify({'error': 'name and tasks_json are required'}), 400
+
+    db = get_db()
+    try:
+        tasks_json = data['tasks_json']
+        if isinstance(tasks_json, list):
+            tasks_json = json.dumps(tasks_json)
+
+        db.execute(
+            'INSERT INTO checklist_templates (name, department, checklist_type, phase, tasks_json, '
+            'location_mode, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            (data['name'], data.get('department'), data.get('checklist_type', 'onboarding'),
+             data.get('phase', 'company_onboarding'), tasks_json,
+             data.get('location_mode', 'all'), 1, datetime.utcnow().isoformat())
+        )
+        db.commit()
+        tid = db.execute('SELECT last_insert_rowid()').fetchone()[0]
+
+        _audit('template_created', 'template', tid, {'name': data['name']})
+
+        tmpl = db.execute('SELECT * FROM checklist_templates WHERE id = ?', (tid,)).fetchone()
+        return jsonify(dict(tmpl)), 201
+    finally:
+        db.close()
+
+
+@mgr_bp.route('/templates/<int:tmpl_id>', methods=['PUT'])
+@login_required
+@role_required(['admin'])
+def update_template(tmpl_id):
+    """Update a checklist template."""
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': 'Request body required'}), 400
+
+    db = get_db()
+    try:
+        tmpl = db.execute('SELECT * FROM checklist_templates WHERE id = ?', (tmpl_id,)).fetchone()
+        if not tmpl:
+            return jsonify({'error': 'Template not found'}), 404
+
+        allowed = ['name', 'department', 'checklist_type', 'phase', 'location_mode']
+        updates = []
+        params = []
+        for field in allowed:
+            if field in data:
+                updates.append(f'{field} = ?')
+                params.append(data[field])
+
+        if 'tasks_json' in data:
+            tasks_json = data['tasks_json']
+            if isinstance(tasks_json, list):
+                tasks_json = json.dumps(tasks_json)
+            updates.append('tasks_json = ?')
+            params.append(tasks_json)
+
+        updates.append('updated_at = ?')
+        params.append(datetime.utcnow().isoformat())
+
+        params.append(tmpl_id)
+        db.execute(f'UPDATE checklist_templates SET {", ".join(updates)} WHERE id = ?', params)
+        db.commit()
+
+        _audit('template_updated', 'template', tmpl_id, data)
+
+        updated = db.execute('SELECT * FROM checklist_templates WHERE id = ?', (tmpl_id,)).fetchone()
+        return jsonify(dict(updated))
+    finally:
+        db.close()
+
+
+@mgr_bp.route('/templates/<int:tmpl_id>', methods=['DELETE'])
+@login_required
+@role_required(['admin'])
+def delete_template(tmpl_id):
+    """Deactivate a template."""
+    db = get_db()
+    try:
+        tmpl = db.execute('SELECT * FROM checklist_templates WHERE id = ?', (tmpl_id,)).fetchone()
+        if not tmpl:
+            return jsonify({'error': 'Template not found'}), 404
+
+        db.execute('UPDATE checklist_templates SET is_active = 0 WHERE id = ?', (tmpl_id,))
+        db.commit()
+
+        _audit('template_deactivated', 'template', tmpl_id, {})
+
+        return jsonify({'message': 'Template deactivated'})
     finally:
         db.close()
 
