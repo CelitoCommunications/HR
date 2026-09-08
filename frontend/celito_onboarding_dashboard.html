@@ -1543,12 +1543,13 @@ async function renderDashboard(el) {
                         <option value="teams">Teams</option>
                         <option value="both">Both</option>
                     </select>
+                    <button class="btn btn-sm" onclick="sendTestDM()" style="background:#2c3e50;color:#fff;font-size:12px;padding:4px 14px">🧪 Test DM</button>
                     <button class="btn btn-sm" onclick="sendManagerSynopsis()" style="background:#4A154B;color:#fff;font-size:12px;padding:4px 14px">📊 Manager Synopsis</button>
                     <button class="btn btn-sm" onclick="sendEmployeeUpdates()" style="background:#4A154B;color:#fff;font-size:12px;padding:4px 14px">📋 Employee Updates</button>
                     <button class="btn btn-sm" onclick="sendDailyDigest()" style="background:#4A154B;color:#fff;font-size:12px;padding:4px 14px">📅 Daily Digest</button>
                 </div>
             </div>
-            <p style="font-size:12px;color:var(--text-light);padding:0 16px 12px">Send DMs to managers with their team onboarding progress, or to employees with their personal task updates. Choose your channel above.</p>
+            <p style="font-size:12px;color:var(--text-light);padding:0 16px 12px">Send DMs to managers with their team onboarding progress, or to employees with their personal task updates. Choose your channel above. Use 🧪 Test DM to send yourself a test message first.</p>
         </div>` : ''}
 
         <div class="metrics-strip">
@@ -2728,6 +2729,17 @@ function _getNotifyChannel() {
 
 function _channelLabel(via) {
     return via === 'both' ? 'Slack + Teams' : via === 'teams' ? 'Teams' : 'Slack';
+}
+
+async function sendTestDM() {
+    const via = _getNotifyChannel();
+    if (!confirm(`Send a test DM to yourself via ${_channelLabel(via)}?`)) return;
+    try {
+        const res = await api('/api/admin/notify/test-dm', { method: 'POST', body: { via } });
+        showToast(res.message || 'Test DM sent!', 'success');
+    } catch (e) {
+        showToast('Test DM failed: ' + (e.message || 'Unknown error'), 'error');
+    }
 }
 
 async function sendManagerSynopsis(managerEmail) {

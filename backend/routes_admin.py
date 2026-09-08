@@ -492,6 +492,53 @@ def test_teams():
         return jsonify({'status': 'error', 'message': f'Connection failed: {str(e)}'}), 500
 
 
+@admin_bp.route('/notify/test-dm', methods=['POST'])
+@login_required
+@role_required(['admin', 'hr'])
+def test_dm():
+    """Send a test DM to the current user (or a specified email) via Slack, Teams, or both.
+
+    JSON body:
+        via:   "slack" | "teams" | "both" (default "slack")
+        email: target email (defaults to logged-in user)
+    """
+    data = request.get_json(silent=True) or {}
+    via = data.get('via', 'slack')
+    user = get_current_user()
+    email = (data.get('email') or user.get('email', '')).strip().lower()
+
+    if not email:
+        return jsonify({'error': 'No email address available'}), 400
+
+    try:
+        _get_notify_clients(via)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 503
+
+    msg = (
+        f"🧪 *Test Message from Celito Onboarding*\n\n"
+        f"If you're reading this, notifications via *{via}* are working!\n\n"
+        f"Sent to: {email}\n"
+        f"👉 <https://dash.celito.net/onboard/#dashboard|Open Portal>"
+    )
+
+    result = _send_notification(email, msg, via)
+    _audit('test_dm', 'notification', None, {'via': via, 'email': email, **result})
+
+    if result['sent']:
+        channels = ', '.join(result['sent'])
+        return jsonify({
+            'message': f'Test DM sent to {email} via {channels}',
+            'sent': result['sent'],
+            'failed': result['failed'],
+        })
+    else:
+        return jsonify({
+            'error': f'Failed to send test DM',
+            'failed': result['failed'],
+        }), 500
+
+
 @admin_bp.route('/test-anthropic', methods=['POST'])
 @login_required
 @role_required(['admin'])
