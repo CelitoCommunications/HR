@@ -16,7 +16,7 @@ $TaskName    = "CelitoOnboard-AutoStart"
 $TaskFolder  = "\Celito"
 $ProjectDir  = "C:\Users\celitoadmin\Desktop\Roadmap\HR"
 $BatFile     = Join-Path $ProjectDir "start_onboard.bat"
-$Description = "Starts the Celito Employee Onboarding & Offboarding Platform (Waitress on port 8780) at system boot. Runs as SYSTEM — no user login required."
+$Description = "Starts the Celito Employee Onboarding Platform (Waitress on port 8780) at system boot. Runs as SYSTEM, no user login required."
 
 # ── Preflight checks ────────────────────────────────────────
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -108,5 +108,5 @@ Write-Host "To verify, open Task Scheduler and look under:"
 Write-Host "  Task Scheduler Library -> Celito -> $TaskName"
 Write-Host ""
 Write-Host "To test now without rebooting:"
-Write-Host "  Start-ScheduledTask -TaskPath '$TaskFolder\' -TaskName '$TaskName'"
+Write-Host "  Start-ScheduledTask -TaskPath '\Celito\' -TaskName 'CelitoOnboard-AutoStart'"
 Write-Host ""
