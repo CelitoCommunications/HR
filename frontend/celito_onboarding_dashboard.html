@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Celito Onboarding & Offboarding</title>
-<link rel="manifest" id="manifest-link" href="/manifest.json">
-<link rel="icon" type="image/svg+xml" id="icon-link" href="/assets/icon.svg">
+<link rel="manifest" id="manifest-link" href="/onboard/manifest.json">
+<link rel="icon" type="image/svg+xml" id="icon-link" href="/onboard/assets/icon.svg">
 <meta name="theme-color" content="#00447c">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -1939,14 +1939,13 @@ function employeeFormHTML(emp) {
         </div>
         <div class="form-row">
             <div class="form-group">
-                <label class="checkbox-item" style="font-weight:600"><input type="checkbox" id="ef-rehire" ${e.is_rehire?'checked':''}> 🔄 Returning Employee (Rehire / Boomerang)</label>
+                <label class="checkbox-item" style="font-weight:600"><input type="checkbox" id="ef-rehire" ${e.is_rehire?'checked':''} onchange="document.getElementById('ef-prev-end-wrap').style.display=this.checked?'':'none'"> 🔄 Returning Employee (Rehire / Boomerang)</label>
                 <div style="font-size:12px;color:var(--text-muted);margin-top:2px;margin-left:24px">Pre-boarding &amp; company onboarding tasks will be auto-skipped. The employee can mark remaining tasks as "Already Done" for HR review.</div>
             </div>
             <div class="form-group" id="ef-prev-end-wrap" style="${e.is_rehire?'':'display:none'}"><label>Previous End Date</label>
                 <input class="form-control" id="ef-prev-end" type="date" value="${esc(e.previous_end_date||'')}">
             </div>
         </div>
-        <script>document.getElementById('ef-rehire')?.addEventListener('change',function(){document.getElementById('ef-prev-end-wrap').style.display=this.checked?'':'none'});</script>
         ${!emp ? `<div class="form-group"><label>Equipment Needed</label>
             <div class="checkbox-group">
                 <label class="checkbox-item"><input type="checkbox" id="eq-computer" checked> Computer
