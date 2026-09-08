@@ -1,0 +1,36 @@
+{
+    "entra": {
+        "client_id": "YOUR_ENTRA_CLIENT_ID",
+        "client_secret": "YOUR_ENTRA_CLIENT_SECRET",
+        "tenant_id": "YOUR_ENTRA_TENANT_ID",
+        "redirect_uri": "https://dash.celito.net/onboard/auth/callback"
+    },
+    "salesforce": {
+        "client_id": "YOUR_SALESFORCE_CLIENT_ID",
+        "client_secret": "YOUR_SALESFORCE_CLIENT_SECRET",
+        "token_url": "https://celito.my.salesforce.com/services/oauth2/token",
+        "instance_url": "https://celito.my.salesforce.com"
+    },
+    "slack": {
+        "bot_token": "xoxb-YOUR-BOT-TOKEN",
+        "user_token": "xoxp-YOUR-USER-TOKEN",
+        "workspace_id": "YOUR_WORKSPACE_ID",
+        "hr_onboarding_channel": "#hr-onboarding",
+        "hr_offboarding_channel": "#hr-offboarding"
+    },
+    "anthropic": {
+        "api_key": "YOUR_ANTHROPIC_API_KEY",
+        "model": "claude-sonnet-4-6"
+    },
+    "server": {
+        "host": "127.0.0.1",
+        "port": 8780
+    },
+    "team_assignments": {
+        "sysadmin_email": "sysadmin@celito.net",
+        "servicedesk_email": "servicedesk@celito.net",
+        "voice_dept_email": "voice@celito.net",
+        "hr_email": "hr@celito.net",
+        "facilities_email": "facilities@celito.net"
+    }
+}

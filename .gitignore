@@ -1,0 +1,20 @@
+# Secrets — never commit
+config/settings.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs & database
+logs/
+*.db
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
