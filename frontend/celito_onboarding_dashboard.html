@@ -953,7 +953,7 @@ function formatDate(d) {
 }
 
 function relativeTime(d) {
-    if (!d) return '';
+    if (!d) return 'Never';
     const now = new Date(), dt = new Date(d);
     const diff = Math.floor((now - dt) / 1000);
     if (diff < 60) return 'just now';
@@ -1535,10 +1535,10 @@ async function renderDashboard(el) {
         </div>
 
         <div class="metrics-strip">
-            <div class="metric-item"><div class="metric-value">${s.time_to_ramp_avg||s.avg_time_to_ramp||'—'}</div><div class="metric-label">Avg Time to Ramp (days)</div></div>
-            <div class="metric-item"><div class="metric-value">${s.retention_90_day != null ? s.retention_90_day+'%' : '—'}</div><div class="metric-label">90-Day Retention</div></div>
-            <div class="metric-item"><div class="metric-value">${s.new_hire_nps != null ? s.new_hire_nps : '—'}</div><div class="metric-label">New Hire NPS</div></div>
-            <div class="metric-item"><div class="metric-value">${s.tasks_on_time_pct != null ? s.tasks_on_time_pct+'%' : '—'}</div><div class="metric-label">Tasks On-Time</div></div>
+            <div class="metric-item"><div class="metric-value">${s.time_to_ramp_avg||s.avg_time_to_ramp||'N/A'}</div><div class="metric-label">Avg Time to Ramp (days)</div></div>
+            <div class="metric-item"><div class="metric-value">${s.retention_90_day != null ? s.retention_90_day+'%' : 'N/A'}</div><div class="metric-label">90-Day Retention</div></div>
+            <div class="metric-item"><div class="metric-value">${s.new_hire_nps != null ? s.new_hire_nps : 'N/A'}</div><div class="metric-label">New Hire NPS</div></div>
+            <div class="metric-item"><div class="metric-value">${s.tasks_on_time_pct != null ? s.tasks_on_time_pct+'%' : 'N/A'}</div><div class="metric-label">Tasks On-Time</div></div>
         </div>
     `;
 
@@ -3740,10 +3740,10 @@ async function renderReports(el) {
         <div class="stats-row">
             <div class="stat-card"><div class="stat-icon green">📥</div><div><div class="stat-value">${s.hires_this_month||s.monthly_hires||0}</div><div class="stat-label">Hires This Month</div></div></div>
             <div class="stat-card"><div class="stat-icon orange">📤</div><div><div class="stat-value">${s.departures_this_month||s.monthly_departures||0}</div><div class="stat-label">Departures</div></div></div>
-            <div class="stat-card"><div class="stat-icon blue">⏱️</div><div><div class="stat-value">${s.avg_time_to_ramp||'—'}</div><div class="stat-label">Avg Time to Ramp (d)</div></div></div>
-            <div class="stat-card"><div class="stat-icon green">📊</div><div><div class="stat-value">${s.retention_90_day!=null?s.retention_90_day+'%':'—'}</div><div class="stat-label">90-Day Retention</div></div></div>
-            <div class="stat-card"><div class="stat-icon purple">⭐</div><div><div class="stat-value">${s.new_hire_nps!=null?s.new_hire_nps:'—'}</div><div class="stat-label">New Hire NPS</div></div></div>
-            <div class="stat-card"><div class="stat-icon blue">✅</div><div><div class="stat-value">${s.tasks_on_time_pct!=null?s.tasks_on_time_pct+'%':'—'}</div><div class="stat-label">Tasks On-Time</div></div></div>
+            <div class="stat-card"><div class="stat-icon blue">⏱️</div><div><div class="stat-value">${s.avg_time_to_ramp||'N/A'}</div><div class="stat-label">Avg Time to Ramp (d)</div></div></div>
+            <div class="stat-card"><div class="stat-icon green">📊</div><div><div class="stat-value">${s.retention_90_day!=null?s.retention_90_day+'%':'N/A'}</div><div class="stat-label">90-Day Retention</div></div></div>
+            <div class="stat-card"><div class="stat-icon purple">⭐</div><div><div class="stat-value">${s.new_hire_nps!=null?s.new_hire_nps:'N/A'}</div><div class="stat-label">New Hire NPS</div></div></div>
+            <div class="stat-card"><div class="stat-icon blue">✅</div><div><div class="stat-value">${s.tasks_on_time_pct!=null?s.tasks_on_time_pct+'%':'N/A'}</div><div class="stat-label">Tasks On-Time</div></div></div>
         </div>
 
         <div class="grid-2">
@@ -3903,7 +3903,7 @@ async function switchAdminTab(tab) {
                         <option value="manager" ${u.role==='manager'?'selected':''}>Manager</option>
                         <option value="employee" ${u.role==='employee'?'selected':''}>Employee</option>
                         <option value="disabled" ${u.role==='disabled'?'selected':''} style="color:#c0392b">Disabled</option>
-                    </select></td><td>${esc(u.department||'')}</td><td>${relativeTime(u.last_login)}</td>
+                    </select></td><td>${esc(u.department||'—')}</td><td>${relativeTime(u.last_login)}</td>
                     <td><button class="btn btn-sm btn-secondary" onclick="impersonateUser('${esc(u.display_name)}')">👁️ View as</button></td></tr>`).join('')
             }</tbody></table></div></div>`;
     } else if (tab === 'integrations') {
