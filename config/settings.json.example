@@ -6,10 +6,12 @@
         "redirect_uri": "https://dash.celito.net/onboard/auth/callback"
     },
     "salesforce": {
-        "client_id": "YOUR_SALESFORCE_CLIENT_ID",
-        "client_secret": "YOUR_SALESFORCE_CLIENT_SECRET",
-        "token_url": "https://celito.my.salesforce.com/services/oauth2/token",
-        "instance_url": "https://celito.my.salesforce.com"
+        "username": "",
+        "password": "",
+        "security_token": "",
+        "domain": "celito.my",
+        "client_id": "",
+        "client_secret": ""
     },
     "slack": {
         "bot_token": "xoxb-YOUR-BOT-TOKEN",

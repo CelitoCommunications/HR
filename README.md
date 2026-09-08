@@ -52,7 +52,7 @@ A web-based platform for managing employee onboarding and offboarding workflows 
 
 ### Integrations
 - **Microsoft Entra ID SSO** — Single sign-on via "Sign in with Microsoft"
-- **Salesforce** — Cases and Tasks created automatically (Client Credentials OAuth 2.0)
+- **Salesforce** — Cases and Tasks created automatically (Username-Password OAuth 2.0)
 - **Slack** — Channel notifications, DMs to managers/new hires/buddies, celebration posts
 - **Claude AI** — AI-generated milestones and checklists (claude-sonnet-4-6)
 
@@ -78,7 +78,7 @@ copy config\settings.json.example config\settings.json
 ```
 Edit `config\settings.json` with your credentials:
 - Entra ID (client_id, client_secret, tenant_id)
-- Salesforce (client_id, client_secret)
+- Salesforce (username, password, security_token, domain, client_id, client_secret)
 - Slack (bot_token, user_token)
 - Anthropic (api_key)
 - Team Assignments (sysadmin_email, servicedesk_email, hr_email, etc.)

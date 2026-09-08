@@ -21,7 +21,7 @@ DEFAULTS = {
     "server.port": 8780,
     "server.host": "127.0.0.1",
     "anthropic.model": "claude-sonnet-4-6",
-    "salesforce.token_url": "https://login.salesforce.com/services/oauth2/token",
+    "salesforce.domain": "login",
 }
 
 
