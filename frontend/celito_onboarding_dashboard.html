@@ -1308,6 +1308,11 @@ function closeModal() {
         overlay._trapHandler = null;
     }
     overlay.classList.remove('open');
+    // Reset any per-modal size overrides
+    var mc = document.getElementById('modal-container');
+    mc.style.maxHeight = '';
+    mc.style.height = '';
+    document.getElementById('modal-body').style.height = '';
     // Return focus to opener
     if (overlay._previousFocus && overlay._previousFocus.focus) {
         try { overlay._previousFocus.focus(); } catch(e) {}
@@ -3451,25 +3456,32 @@ function showTemplateEditor(existingTmpl, tasks, defaultName) {
     const phaseVal = existingTmpl?.phase || '';
 
     showModal(existingTmpl ? 'Edit Template' : 'New Template', `
-        <div class="form-group"><label>Template Name <span class="required">*</span></label><input class="form-control" id="tpl-name" value="${esc(nameVal)}"></div>
-        <div class="form-row">
-            <div class="form-group"><label>Department</label>
-                <select class="form-control" id="tpl-dept"><option value="">All Departments</option>${DEPARTMENTS.map(d=>`<option ${d===deptVal?'selected':''}>${esc(d)}</option>`).join('')}</select></div>
-            <div class="form-group"><label>Type</label>
-                <select class="form-control" id="tpl-type"><option value="onboarding" ${typeVal==='onboarding'?'selected':''}>Onboarding</option><option value="offboarding" ${typeVal==='offboarding'?'selected':''}>Offboarding</option></select></div>
-        </div>
-        <div class="form-group">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                <label style="margin:0">Tasks <span style="font-size:11px;color:var(--text-light)">(${window._tplTasks.length})</span></label>
-                <div style="display:flex;gap:6px">
-                    <input class="form-control" id="tpl-search" placeholder="Filter tasks..." style="width:180px;font-size:12px;padding:4px 8px">
-                    <button type="button" class="btn btn-sm btn-secondary" onclick="addTemplateTaskRow()">+ Add Task</button>
+        <div style="display:flex;flex-direction:column;height:100%">
+            <div style="flex-shrink:0">
+                <div class="form-group"><label>Template Name <span class="required">*</span></label><input class="form-control" id="tpl-name" value="${esc(nameVal)}"></div>
+                <div class="form-row">
+                    <div class="form-group"><label>Department</label>
+                        <select class="form-control" id="tpl-dept"><option value="">All Departments</option>${DEPARTMENTS.map(d=>`<option ${d===deptVal?'selected':''}>${esc(d)}</option>`).join('')}</select></div>
+                    <div class="form-group"><label>Type</label>
+                        <select class="form-control" id="tpl-type"><option value="onboarding" ${typeVal==='onboarding'?'selected':''}>Onboarding</option><option value="offboarding" ${typeVal==='offboarding'?'selected':''}>Offboarding</option></select></div>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <label style="margin:0">Tasks <span style="font-size:11px;color:var(--text-light)">(${window._tplTasks.length})</span></label>
+                    <div style="display:flex;gap:6px">
+                        <input class="form-control" id="tpl-search" placeholder="Filter tasks..." style="width:180px;font-size:12px;padding:4px 8px">
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="addTemplateTaskRow()">+ Add Task</button>
+                    </div>
                 </div>
             </div>
-            <div id="tpl-tasks-list" style="max-height:400px;overflow-y:auto"></div>
+            <div id="tpl-tasks-list" style="flex:1;overflow-y:auto;min-height:200px"></div>
         </div>
     `, { footer: `<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                   <button class="btn btn-primary" onclick="saveTemplate()">${existingTmpl ? 'Update' : 'Save'} Template</button>`, width: '800px' });
+                   <button class="btn btn-primary" onclick="saveTemplate()">${existingTmpl ? 'Update' : 'Save'} Template</button>`, width: '960px' });
+
+    // Make modal use full viewport height for template editing
+    document.getElementById('modal-container').style.maxHeight = '95vh';
+    document.getElementById('modal-container').style.height = '95vh';
+    document.getElementById('modal-body').style.height = '100%';
 
     renderTemplateTaskRows();
 
@@ -3489,22 +3501,25 @@ function renderTemplateTaskRows() {
     const phaseOpts = PHASE_ORDER.map(p => `<option value="${p}">${PHASE_LABELS[p]}</option>`).join('');
 
     container.innerHTML = window._tplTasks.map((t, i) => `
-        <div data-tpl-task-row="${i}" style="display:flex;gap:6px;align-items:start;margin-bottom:4px;padding:8px;background:var(--bg);border-radius:var(--radius-sm);font-size:12px">
-            <div style="flex:3;display:grid;gap:4px">
-                <input class="form-control" placeholder="Task title" value="${esc(t.title)}" onchange="window._tplTasks[${i}].title=this.value" style="font-size:12px;font-weight:500">
-                <input class="form-control" placeholder="Description (optional)" value="${esc(t.description||'')}" onchange="window._tplTasks[${i}].description=this.value" style="font-size:11px;color:var(--text-light)">
+        <div data-tpl-task-row="${i}" style="margin-bottom:4px;padding:8px 10px;background:var(--bg);border-radius:var(--radius-sm);font-size:12px">
+            <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+                <span style="color:var(--text-light);font-size:10px;width:24px;text-align:center;flex-shrink:0">${i+1}</span>
+                <input class="form-control" placeholder="Task title" value="${esc(t.title)}" onchange="window._tplTasks[${i}].title=this.value" style="flex:1;font-size:12px;font-weight:500">
+                <select class="form-control" onchange="window._tplTasks[${i}].category=this.value" style="width:100px;font-size:11px">
+                    ${cats.map(([k,v])=>`<option value="${k}" ${t.category===k?'selected':''}>${v}</option>`).join('')}
+                </select>
+                <select class="form-control" onchange="window._tplTasks[${i}].phase=this.value" style="width:130px;font-size:11px">
+                    ${PHASE_ORDER.map(p=>`<option value="${p}" ${t.phase===p?'selected':''}>${PHASE_LABELS[p]}</option>`).join('')}
+                </select>
+                <div style="display:flex;gap:2px;flex-shrink:0">
+                    ${i > 0 ? `<button type="button" style="font-size:10px;cursor:pointer;border:none;background:none;color:var(--text-light);padding:2px 4px" onclick="[window._tplTasks[${i}],window._tplTasks[${i-1}]]=[window._tplTasks[${i-1}],window._tplTasks[${i}]];renderTemplateTaskRows()" title="Move up">▲</button>` : '<span style="width:20px"></span>'}
+                    <button type="button" class="task-action-btn delete" onclick="window._tplTasks.splice(${i},1);renderTemplateTaskRows();updateTaskCount()" title="Remove" style="font-size:14px;padding:2px 4px">&times;</button>
+                </div>
             </div>
-            <select class="form-control" onchange="window._tplTasks[${i}].category=this.value" style="width:85px;font-size:11px">
-                ${cats.map(([k,v])=>`<option value="${k}" ${t.category===k?'selected':''}>${v}</option>`).join('')}
-            </select>
-            <input class="form-control" placeholder="Assigned" value="${esc(t.assigned_to||'')}" onchange="window._tplTasks[${i}].assigned_to=this.value" style="width:90px;font-size:11px" title="Assigned to">
-            <select class="form-control" onchange="window._tplTasks[${i}].phase=this.value" style="width:110px;font-size:11px">
-                ${PHASE_ORDER.map(p=>`<option value="${p}" ${t.phase===p?'selected':''}>${PHASE_LABELS[p]}</option>`).join('')}
-            </select>
-            <input class="form-control" type="number" placeholder="Days" title="Due offset (days from start)" value="${t.due_offset_days||0}" onchange="window._tplTasks[${i}].due_offset_days=parseInt(this.value)||0" style="width:55px;font-size:11px">
-            <div style="display:flex;flex-direction:column;gap:2px">
-                <button type="button" class="task-action-btn delete" onclick="window._tplTasks.splice(${i},1);renderTemplateTaskRows();updateTaskCount()" title="Remove" style="font-size:14px;padding:2px 4px">&times;</button>
-                ${i > 0 ? `<button type="button" style="font-size:10px;cursor:pointer;border:none;background:none;color:var(--text-light);padding:0" onclick="[window._tplTasks[${i}],window._tplTasks[${i-1}]]=[window._tplTasks[${i-1}],window._tplTasks[${i}]];renderTemplateTaskRows()" title="Move up">▲</button>` : ''}
+            <div style="display:flex;gap:6px;align-items:center;padding-left:30px">
+                <input class="form-control" placeholder="Description (optional)" value="${esc(t.description||'')}" onchange="window._tplTasks[${i}].description=this.value" style="flex:1;font-size:11px;color:var(--text-light)">
+                <input class="form-control" placeholder="Assigned to" value="${esc(t.assigned_to||'')}" onchange="window._tplTasks[${i}].assigned_to=this.value" style="width:140px;font-size:11px" title="Assigned to">
+                <input class="form-control" type="number" placeholder="Days" title="Due offset (days from start)" value="${t.due_offset_days||0}" onchange="window._tplTasks[${i}].due_offset_days=parseInt(this.value)||0" style="width:65px;font-size:11px">
             </div>
         </div>`).join('') || '<div style="font-size:12px;color:var(--text-light);padding:8px">No tasks yet. Click "+ Add Task" to begin.</div>';
 }
