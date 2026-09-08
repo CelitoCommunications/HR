@@ -228,11 +228,13 @@ def auth_callback():
             role = existing["role"]
             department = existing["department"]
         else:
+            # First user ever gets admin; everyone after gets employee
+            user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            role = "admin" if user_count == 0 else "employee"
             conn.execute(
-                "INSERT INTO users (email, display_name, role, last_login) VALUES (?, ?, 'employee', ?)",
-                (email, display_name, now),
+                "INSERT INTO users (email, display_name, role, last_login) VALUES (?, ?, ?, ?)",
+                (email, display_name, role, now),
             )
-            role = "employee"
             department = ""
         conn.commit()
     finally:
