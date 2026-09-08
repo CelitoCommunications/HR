@@ -968,6 +968,25 @@ function initials(name) {
     return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2);
 }
 
+// ── Avatar helpers ───────────────────────────────────────────────
+const _AVATAR_COLORS = [
+    '#e74c3c','#d35400','#e67e22','#f39c12','#27ae60',
+    '#16a085','#2980b9','#8e44ad','#c0392b','#2c3e50',
+    '#1abc9c','#3498db','#9b59b6','#e84393','#00b894',
+    '#6c5ce7','#d63031','#e17055','#0984e3','#a29bfe',
+];
+function avatarColor(name) {
+    var hash = 0;
+    for (var i = 0; i < (name||'').length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    return _AVATAR_COLORS[Math.abs(hash) % _AVATAR_COLORS.length];
+}
+function avatar(name, size, extraStyle) {
+    var sz = size || 32;
+    var fs = Math.max(11, Math.round(sz * 0.38));
+    var bg = avatarColor(name);
+    return '<div style="width:'+sz+'px;height:'+sz+'px;border-radius:50%;background:'+bg+';color:#fff;display:flex;align-items:center;justify-content:center;font-size:'+fs+'px;font-weight:600;flex-shrink:0;'+(extraStyle||'')+'">'+esc(initials(name))+'</div>';
+}
+
 function statusBadge(status) {
     const cls = STATUS_BADGES[status] || 'badge-secondary';
     return `<span class="badge ${cls}">${esc(status)}</span>`;
@@ -1568,7 +1587,7 @@ async function renderDashboard(el) {
         const oName = o.name || ((o.first_name||'') + ' ' + (o.last_name||'')).trim();
         const phase = currentPhaseFromStart(o.start_date);
         return `<div style="padding:12px;border-bottom:1px solid var(--border-light);cursor:pointer;display:flex;align-items:center;gap:12px" onclick="navigate('employee-detail',${o.employee_id||o.id})">
-            <div class="user-avatar" style="width:36px;height:36px;font-size:12px">${esc(initials(oName))}</div>
+            ${avatar(oName, 36)}
             <div style="flex:1"><div style="font-weight:600;font-size:13px">${esc(oName)}</div>
             <div style="font-size:11px;color:var(--text-light)">${esc(o.department||'')}</div></div>
             ${phaseBadge(phase)}
@@ -1582,7 +1601,7 @@ async function renderDashboard(el) {
     else { offEl.innerHTML = offs.map(o => {
         const oName = o.name || ((o.first_name||'') + ' ' + (o.last_name||'')).trim();
         return `<div style="padding:12px;border-bottom:1px solid var(--border-light);cursor:pointer;display:flex;align-items:center;gap:12px" onclick="navigate('employee-detail',${o.employee_id||o.id})">
-            <div class="user-avatar" style="width:36px;height:36px;font-size:12px">${esc(initials(oName))}</div>
+            ${avatar(oName, 36)}
             <div style="flex:1"><div style="font-weight:600;font-size:13px">${esc(oName)}</div>
             <div style="font-size:11px;color:var(--text-light)">${esc(o.department||'')} · Last day: ${formatDate(o.end_date)}</div></div>
             <span class="badge ${o.offboard_type==='involuntary'?'badge-danger':'badge-info'}">${o.offboard_type==='involuntary'?'⚠️ ':''} ${esc(o.offboard_type||'voluntary')}</span>
@@ -1693,7 +1712,7 @@ function renderManagerDashboard(el, data) {
                 else statusLabel = '<span class="badge badge-danger" title="Significantly behind">🔴 Behind</span>';
             }
             return `<div style="padding:14px;border-bottom:1px solid var(--border-light);cursor:pointer;display:flex;align-items:center;gap:12px;flex-wrap:wrap" onclick="navigate('employee-detail',${m.id})">
-                <div class="user-avatar" style="width:42px;height:42px;font-size:14px">${esc(initials(name))}</div>
+                ${avatar(name, 42)}
                 <div style="flex:1;min-width:160px">
                     <div style="font-weight:600;font-size:14px">${esc(name)}</div>
                     <div style="font-size:12px;color:var(--text-light)">${esc(m.role_title||'')} · ${esc(m.department||'')}</div>
@@ -2094,7 +2113,7 @@ async function renderEmployeeDetail(el) {
         <div style="margin-bottom:16px"><a href="#" onclick="navigate('employees');return false;">← Back to Employees</a></div>
         <div class="card">
             <div class="emp-header">
-                <div class="emp-avatar">${esc(initials(name))}</div>
+                ${avatar(name, 64)}
                 <div class="emp-info">
                     <h1>${esc(name)} ${statusBadge(emp.status)}</h1>
                     <div class="emp-meta">
@@ -2305,7 +2324,7 @@ async function switchEmpTab(tab, empId) {
                         ? `<span class="badge badge-info">📅 ${esc(m.scheduled_date)}</span>`
                         : '<span class="badge badge-warning">⏳ Pending</span>';
                 return `<div class="meet-card ${m.completed?'met':''}">
-                <div class="meet-avatar">${esc(initials(m.contact_name))}</div>
+                ${avatar(m.contact_name, 40)}
                 <div class="meet-info" style="flex:1"><h4 style="margin:0 0 2px">${esc(m.contact_name)}</h4>
                     <div class="meet-role">${esc(m.contact_role||'')} · Week ${m.week_number||'?'}</div>
                     ${hasEmail ? `<div style="font-size:11px;color:var(--text-light)">📧 ${esc(m.contact_email)}</div>` : '<div style="font-size:11px;color:var(--secondary)">⚠️ No email — click to add</div>'}
@@ -2832,7 +2851,7 @@ async function loadOnboardingList(filter) {
         const phase = currentPhaseFromStart(e.start_date);
         const d = daysUntil(e.start_date);
         return `<div class="card" style="padding:16px;cursor:pointer;display:flex;align-items:center;gap:16px" onclick="navigate('employee-detail',${e.id})">
-            <div class="user-avatar" style="width:40px;height:40px;font-size:14px">${esc(initials(name))}</div>
+            ${avatar(name, 40)}
             <div style="flex:1"><div style="font-weight:600">${esc(name)}</div>
                 <div style="font-size:12px;color:var(--text-light)">${esc(e.department)} · ${esc(e.role_title)} · Start: ${formatDate(e.start_date)}</div></div>
             ${phaseBadge(phase)}
@@ -2894,7 +2913,7 @@ async function renderOffboarding(el) {
         const d = daysUntil(e.end_date);
         const isInvol = e.offboard_type === 'involuntary';
         return `<div class="card" style="padding:16px;cursor:pointer;display:flex;align-items:center;gap:16px;${isInvol?'border-left:4px solid var(--danger)':''}" onclick="navigate('employee-detail',${e.id})">
-            <div class="user-avatar" style="width:40px;height:40px;font-size:14px;${isInvol?'background:var(--danger)':''}">${esc(initials(name))}</div>
+            ${avatar(name, 40, isInvol?'background:var(--danger)':'')}
             <div style="flex:1"><div style="font-weight:600">${esc(name)}</div>
                 <div style="font-size:12px;color:var(--text-light)">${esc(e.department)} · Last day: ${formatDate(e.end_date)}</div></div>
             <span class="badge ${isInvol?'badge-danger':'badge-info'}">${isInvol?'⚠️ Involuntary':'Voluntary'}</span>
@@ -4552,7 +4571,7 @@ async function renderTeamOnboarding(el) {
                          onmouseleave="this.style.transform='';this.style.boxShadow=''">
                 ${c.overdue_count > 0 ? `<div style="position:absolute;top:10px;right:10px"><span class="badge badge-danger">⚠️ ${c.overdue_count} overdue</span></div>` : ''}
                 <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-                    <div class="user-avatar" style="width:48px;height:48px;font-size:16px">${esc(initials(name))}</div>
+                    ${avatar(name, 48)}
                     <div style="flex:1">
                         <div style="font-weight:700;font-size:15px">${esc(name)}</div>
                         <div style="font-size:12px;color:var(--text-light)">${esc(c.role_title)} · ${esc(c.department)}</div>
@@ -4727,7 +4746,7 @@ async function renderBuddyAssignments(el) {
         const empName = a.employee_name || ((a.first_name || '') + ' ' + (a.last_name || '')).trim();
         return `<div class="card">
             <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
-                <div class="user-avatar" style="width:48px;height:48px;font-size:16px">${esc(initials(empName))}</div>
+                ${avatar(empName, 48)}
                 <div style="flex:1"><h2 style="margin-bottom:2px">${esc(empName)}</h2>
                     <div style="font-size:12px;color:var(--text-light)">${esc(a.department)} · Started ${ds > 0 ? ds + ' days ago' : 'in ' + Math.abs(ds) + ' days'}</div></div>
             </div>
@@ -4857,7 +4876,7 @@ async function renderMyOnboarding(el) {
     const contacts = onbData.contacts || [];
     if (!contacts.length) { contactsEl.innerHTML = '<div style="font-size:13px;color:var(--text-light)">Contacts will appear here.</div>'; }
     else { contactsEl.innerHTML = contacts.map(c => `<div class="contact-item" style="padding:8px 0">
-        <div class="contact-avatar" style="width:28px;height:28px;font-size:11px">${esc(initials(c.name))}</div>
+        ${avatar(c.name, 28)}
         <div class="contact-info"><div class="contact-name" style="font-size:12px">${esc(c.name)}</div><div class="contact-role" style="font-size:10px">${esc(c.role)}</div></div>
     </div>`).join(''); }
 
@@ -5074,7 +5093,7 @@ async function renderMyBuddy(container) {
         // Buddy intro card
         html += '<div class="card" style="padding:24px;margin-bottom:16px">';
         html += '<div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">';
-        html += '<div style="width:64px;height:64px;border-radius:50%;background:var(--primary-light);display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0">🧑‍🤝‍🧑</div>';
+        html += avatar(buddyName, 64);
         html += '<div>';
         html += '<h2 style="margin:0 0 2px;font-size:20px">Your Onboarding Buddy</h2>';
         html += '<div style="font-size:16px;font-weight:600;color:var(--text)">' + esc(buddyName) + '</div>';
@@ -5309,7 +5328,7 @@ async function renderMyMeetGreets(el) {
                             ? `<span class="badge badge-info">📅 ${esc(m.scheduled_date)}</span>`
                             : '<span class="badge badge-warning">⏳ Pending</span>';
                     return `<div class="meet-card ${m.completed?'met':''}" style="position:relative">
-                    <div class="meet-avatar">${esc(initials(m.contact_name))}</div>
+                    ${avatar(m.contact_name, 40)}
                     <div class="meet-info" style="flex:1">
                         <h4 style="margin:0 0 2px">${esc(m.contact_name)}</h4>
                         <div class="meet-role">${esc(m.contact_role||'')}</div>
@@ -5579,7 +5598,7 @@ async function renderMyContacts(el) {
     const wrap = document.getElementById('contacts-content');
     if (!contacts.length) { wrap.innerHTML = '<div class="empty-state"><div class="icon">👤</div><h3>No contacts set up yet</h3></div>'; return; }
     wrap.innerHTML = contacts.map(c => `<div class="contact-item">
-        <div class="contact-avatar">${esc(initials(c.name))}</div>
+        ${avatar(c.name, 36)}
         <div class="contact-info"><div class="contact-name">${esc(c.name)}</div>
             <div class="contact-role">${esc(c.role)} · ${esc(c.email)}</div></div>
         <a href="mailto:${esc(c.email)}" class="btn btn-sm btn-secondary">📧 Email</a></div>`).join('');
@@ -5635,7 +5654,7 @@ async function renderNavigationGuide(el) {
         data.who_to_ask.forEach(w => {
             const badge = w.badge ? `<span style="font-size:10px;padding:1px 6px;background:var(--bg);border-radius:10px;margin-left:6px">${esc(w.badge)} ${w.badge === '🏠' ? 'Remote' : 'Hybrid'}</span>` : '';
             html += `<div style="display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)${w.badge ? ';border-left:3px solid ' + locColor + ';padding-left:12px' : ''}">
-                <div class="contact-avatar" style="width:32px;height:32px;font-size:11px">${esc(initials(w.role))}</div>
+                ${avatar(w.role, 32)}
                 <div style="flex:1"><strong>${esc(w.role)}</strong>${badge}
                     <div style="font-size:12px;color:var(--text-light)">${esc(w.topics||'')}</div></div>
                 ${w.email ? `<a href="mailto:${esc(w.email)}" class="btn btn-xs btn-secondary">📧</a>` : ''}
@@ -5663,7 +5682,7 @@ async function renderNavigationGuide(el) {
         data.team.forEach(t => {
             const name = esc((t.first_name || '') + ' ' + (t.last_name || ''));
             html += `<div style="display:flex;gap:10px;align-items:center;padding:10px;background:var(--bg);border-radius:var(--radius-sm)">
-                <div class="contact-avatar" style="width:36px;height:36px;font-size:12px;flex-shrink:0">${esc(initials(name))}</div>
+                ${avatar(name, 36)}
                 <div><strong style="font-size:13px">${name}</strong>
                     <div style="font-size:11px;color:var(--text-light)">${esc(t.role_title||'')}</div>
                 </div>
@@ -5905,7 +5924,7 @@ function renderProfile(el) {
 
     el.innerHTML = `<h1>My Profile</h1><div class="card">
         <div style="display:flex;align-items:center;gap:20px;margin-bottom:20px">
-            <div class="user-avatar" style="width:64px;height:64px;font-size:24px">${esc(initials(u.display_name))}</div>
+            ${avatar(u.display_name, 64)}
             <div><h2 style="margin-bottom:2px">${esc(u.display_name)}</h2>
                 <div style="color:var(--text-light)">${esc(u.email)}</div>
                 <div style="margin-top:4px">${statusBadge(u.role)}</div></div>
@@ -6110,7 +6129,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
         document.getElementById('user-name').textContent = u.display_name || u.email || '';
         document.getElementById('user-role').textContent = u.role || '';
-        document.getElementById('user-avatar').textContent = initials(u.display_name || u.email || '');
+        var _n = u.display_name || u.email || '';
+        var _av = document.getElementById('user-avatar');
+        _av.textContent = initials(_n);
+        _av.style.background = avatarColor(_n);
         setupImpersonation();
         buildNavigation();
 
