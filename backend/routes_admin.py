@@ -691,6 +691,82 @@ def list_templates():
         db.close()
 
 
+@admin_bp.route('/templates/defaults', methods=['GET'])
+@login_required
+@role_required(['admin', 'hr'])
+def get_template_defaults():
+    """Return the built-in default onboarding tasks as a flat JSON list.
+
+    Accepts optional query params to tailor the task list:
+      ?hire_type=full-time|part-time|contractor|intern
+      ?location_mode=in-office|remote|hybrid
+      ?department=Sales|IT|...
+    Defaults to full-time / in-office / General if not specified.
+    """
+    from .routes_mgr import _get_onboarding_tasks
+
+    hire_type = request.args.get('hire_type', 'full-time')
+    location_mode = request.args.get('location_mode', 'in-office')
+    department = request.args.get('department', 'General')
+
+    dummy_employee = {
+        'email': 'template@celito.net',
+        'manager_email': '',
+        'department': department,
+        'location_mode': location_mode,
+        'hire_type': hire_type,
+    }
+
+    raw_tasks = _get_onboarding_tasks(dummy_employee)
+
+    # Flatten to the format the template system expects
+    template_tasks = []
+    for t in raw_tasks:
+        task_entry = {
+            'title': t['title'],
+            'description': t.get('description', ''),
+            'category': t.get('category', 'hr'),
+            'assigned_to': t.get('assigned_to', ''),
+            'due_offset_days': t.get('due_offset_days', 0),
+            'phase': t.get('phase', 'company_onboarding'),
+        }
+        if t.get('is_security_critical'):
+            task_entry['is_security_critical'] = True
+        if t.get('is_acknowledgment'):
+            task_entry['is_acknowledgment'] = True
+        if t.get('compliance_required'):
+            task_entry['compliance_required'] = True
+        if t.get('resource_url'):
+            task_entry['resource_url'] = t['resource_url']
+        if t.get('conditions'):
+            task_entry['conditions'] = t['conditions']
+
+        template_tasks.append(task_entry)
+
+        # Also include subtasks as indented entries
+        for st in t.get('subtasks', []):
+            st_entry = {
+                'title': f"  ↳ {st['title']}",
+                'description': st.get('description', ''),
+                'category': st.get('category', t.get('category', 'it')),
+                'assigned_to': st.get('assigned_to', ''),
+                'due_offset_days': st.get('due_offset_days', 0),
+                'phase': st.get('phase', t.get('phase', '')),
+                'parent_title': t['title'],
+            }
+            if st.get('is_security_critical'):
+                st_entry['is_security_critical'] = True
+            template_tasks.append(st_entry)
+
+    return jsonify({
+        'tasks': template_tasks,
+        'hire_type': hire_type,
+        'location_mode': location_mode,
+        'department': department,
+        'total': len(template_tasks),
+    })
+
+
 @admin_bp.route('/templates', methods=['POST'])
 @login_required
 @role_required(['admin'])
