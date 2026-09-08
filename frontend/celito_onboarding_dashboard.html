@@ -5024,7 +5024,7 @@ async function renderMyMeetGreets(el) {
                 weekMgs.map(m => {
                     const hasEmail = m.contact_email && m.contact_email.trim();
                     const empName = state.user?.name || 'New Hire';
-                    const calUrl = hasEmail ? `https://outlook.office.com/calendar/0/deeplink/compose?to=${encodeURIComponent(m.contact_email)}&subject=${encodeURIComponent('Meet & Greet - ' + empName)}&body=${encodeURIComponent('Hi ' + m.contact_name + ',\\n\\nI\\'d love to schedule a 30-minute meet & greet as part of my onboarding. Looking forward to learning about ' + (m.reason || 'your team') + '.\\n\\nBest,\\n' + empName)}` : '';
+                    const calUrl = hasEmail ? `https://outlook.office.com/calendar/0/deeplink/compose?to=${encodeURIComponent(m.contact_email)}&subject=${encodeURIComponent('Meet & Greet - ' + empName)}&body=${encodeURIComponent("Hi " + m.contact_name + ",\n\nI'd love to schedule a 30-minute meet & greet as part of my onboarding. Looking forward to learning about " + (m.reason || "your team") + ".\n\nBest,\n" + empName)}` : '';
                     const statusBadge = m.completed
                         ? '<span class="badge badge-success">✅ Met</span>'
                         : m.scheduled_date
