@@ -376,11 +376,11 @@ def test_anthropic():
         from .config import config
         import requests
 
-        api_key = config('anthropic.api_key')
+        api_key = config.get('anthropic.api_key')
         if not api_key or api_key.startswith('YOUR_'):
             return jsonify({'status': 'error', 'message': 'Anthropic API key not configured'}), 500
 
-        model = config('anthropic.model', 'claude-sonnet-4-6')
+        model = config.get('anthropic.model', 'claude-sonnet-4-6')
         resp = requests.post(
             'https://api.anthropic.com/v1/messages',
             headers={
