@@ -4007,10 +4007,19 @@ async function switchAdminTab(tab) {
         content.innerHTML = '<div class="loading-center"><div class="spinner"></div></div>';
         const data = await api('/api/admin/users');
         const users = data?.users || data || [];
+        var pendingUsers = users.filter(u => u.role === 'pending');
+        var pendingBanner = pendingUsers.length > 0
+            ? `<div class="card" style="margin-bottom:12px;padding:14px 18px;background:#fff3cd;border-left:4px solid #f39c12;display:flex;align-items:center;gap:12px">
+                <span style="font-size:24px">⏳</span>
+                <div><strong>${pendingUsers.length} user${pendingUsers.length!==1?'s':''} awaiting approval</strong>
+                <div style="font-size:12px;color:#856404">Assign a role to grant access to the Onboarding Portal.</div></div></div>`
+            : '';
         content.innerHTML = `<div class="action-bar"><div></div><button class="btn btn-primary" onclick="showAddUserModal()">+ Add User</button></div>
+            ${pendingBanner}
             <div class="card"><div class="table-wrap"><table><thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Department</th><th>Last Login</th><th>Actions</th></tr></thead><tbody>${
-                users.map(u => `<tr style="${u.role==='disabled'?'opacity:0.5;text-decoration:line-through;':''}""><td>${esc(u.email)}</td><td>${u.role==='disabled'?'🚫 ':''}${esc(u.display_name)}</td>
-                    <td><select class="form-control" style="width:auto;display:inline;padding:4px;font-size:12px;${u.role==='disabled'?'color:#c0392b;font-weight:600;':''}" onchange="updateUserRole(${u.id},this.value,'${esc(u.display_name)}')">
+                users.map(u => `<tr style="${u.role==='disabled'?'opacity:0.5;text-decoration:line-through;':''}${u.role==='pending'?'background:#fff8e1;':''}""><td>${esc(u.email)}</td><td>${u.role==='disabled'?'🚫 ':''}${u.role==='pending'?'⏳ ':''}${esc(u.display_name)}</td>
+                    <td><select class="form-control" style="width:auto;display:inline;padding:4px;font-size:12px;${u.role==='disabled'?'color:#c0392b;font-weight:600;':''}${u.role==='pending'?'color:#e67e22;font-weight:600;':''}" onchange="updateUserRole(${u.id},this.value,'${esc(u.display_name)}')">
+                        <option value="pending" ${u.role==='pending'?'selected':''} style="color:#e67e22">⏳ Pending</option>
                         <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
                         <option value="hr" ${u.role==='hr'?'selected':''}>HR</option>
                         <option value="manager" ${u.role==='manager'?'selected':''}>Manager</option>
@@ -4326,7 +4335,7 @@ async function updateUserRole(id, role, name) {
         }
     }
     const r = await api('/api/admin/users/' + id, { method: 'PUT', body: { role } });
-    if (r) { showToast(role === 'disabled' ? 'User disabled' : 'Role updated'); switchAdminTab('users'); }
+    if (r) { showToast(role === 'disabled' ? 'User disabled' : role === 'pending' ? 'User set to pending' : 'Role updated — user can now access the portal'); switchAdminTab('users'); }
 }
 function impersonateUser(name) { window.location.search = '?as=' + encodeURIComponent(name); }
 async function testIntegration(type) {

@@ -41,8 +41,8 @@ CREATE TABLE IF NOT EXISTS users (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     email           TEXT    NOT NULL UNIQUE,
     display_name    TEXT    NOT NULL DEFAULT '',
-    role            TEXT    NOT NULL DEFAULT 'employee'
-                        CHECK(role IN ('admin','manager','hr','employee','disabled')),
+    role            TEXT    NOT NULL DEFAULT 'pending'
+                        CHECK(role IN ('admin','manager','hr','employee','pending','disabled')),
     department      TEXT    DEFAULT '',
     created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
     last_login      TEXT
@@ -401,6 +401,25 @@ MIGRATIONS = [
         INSERT OR IGNORE INTO milestones_new SELECT * FROM milestones;
         DROP TABLE milestones;
         ALTER TABLE milestones_new RENAME TO milestones;
+    """),
+
+    # Add 'pending' role for gated access — new users wait for admin approval
+    ("030_users_pending_role", """
+        CREATE TABLE IF NOT EXISTS users_new (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            email           TEXT    NOT NULL UNIQUE,
+            display_name    TEXT    NOT NULL DEFAULT '',
+            role            TEXT    NOT NULL DEFAULT 'pending'
+                                CHECK(role IN ('admin','manager','hr','employee','pending','disabled')),
+            department      TEXT    DEFAULT '',
+            created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+            last_login      TEXT,
+            timezone        TEXT    DEFAULT 'America/Los_Angeles'
+        );
+        INSERT OR IGNORE INTO users_new (id, email, display_name, role, department, created_at, last_login, timezone)
+            SELECT id, email, display_name, role, department, created_at, last_login, timezone FROM users;
+        DROP TABLE users;
+        ALTER TABLE users_new RENAME TO users;
     """),
 ]
 

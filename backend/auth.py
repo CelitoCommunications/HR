@@ -50,11 +50,14 @@ def _get_msal_app():
 # ──────────────────────────────────────────────────────────────────────
 
 def login_required(f):
-    """Redirect to /login if no active session."""
+    """Redirect to /login if no active session; block pending/disabled users."""
     @functools.wraps(f)
     def decorated(*args, **kwargs):
         if "user" not in session:
             return redirect(url_for("auth.login", next=request.url))
+        role = session["user"].get("role", "")
+        if role in ("pending", "disabled"):
+            return redirect(url_for("auth.access_pending"))
         return f(*args, **kwargs)
     return decorated
 
@@ -228,9 +231,9 @@ def auth_callback():
             role = existing["role"]
             department = existing["department"]
         else:
-            # First user ever gets admin; everyone after gets employee
+            # First user ever gets admin; everyone after gets pending (awaiting admin approval)
             user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-            role = "admin" if user_count == 0 else "employee"
+            role = "admin" if user_count == 0 else "pending"
             conn.execute(
                 "INSERT INTO users (email, display_name, role, last_login) VALUES (?, ?, ?, ?)",
                 (email, display_name, role, now),
@@ -240,6 +243,20 @@ def auth_callback():
     finally:
         conn.close()
 
+    log_audit(email, "login", "user", email)
+    logger.info("User logged in: %s (%s) — role: %s", display_name, email, role)
+
+    # Pending and disabled users see the access-request page, not the app
+    if role in ("pending", "disabled"):
+        session.permanent = True
+        session["user"] = {
+            "email": email,
+            "name": display_name,
+            "role": role,
+            "department": department or "",
+        }
+        return redirect(url_for("auth.access_pending"))
+
     # Set session
     session.permanent = True
     session["user"] = {
@@ -248,9 +265,6 @@ def auth_callback():
         "role": role,
         "department": department or "",
     }
-
-    log_audit(email, "login", "user", email)
-    logger.info("User logged in: %s (%s)", display_name, email)
 
     # Redirect to the originally-requested page or home (validate to prevent open redirect)
     next_url = request.args.get("state", "/")
@@ -275,6 +289,81 @@ def logout():
         f"?post_logout_redirect_uri={post_logout_url}"
     )
     return redirect(logout_url)
+
+
+@auth_bp.route("/access-pending")
+def access_pending():
+    """Show the 'waiting for admin approval' page for pending/disabled users."""
+    user = session.get("user")
+    if not user:
+        return redirect(url_for("auth.login"))
+
+    # If the user's role has been updated since login, refresh from DB
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT role FROM users WHERE email = ?", (user["email"],)).fetchone()
+    finally:
+        conn.close()
+
+    if row and row["role"] not in ("pending", "disabled"):
+        # Admin has approved — update session and redirect to app
+        session["user"]["role"] = row["role"]
+        session.modified = True
+        return redirect("/")
+
+    status = "disabled" if (row and row["role"] == "disabled") else "pending"
+    name = user.get("name", user.get("email", ""))
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Access Pending — Celito Onboarding</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+               background: #f0f2f5; display: flex; align-items: center; justify-content: center;
+               min-height: 100vh; padding: 20px; color: #2c3e50; }}
+        .card {{ background: #fff; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,.08);
+                max-width: 480px; width: 100%; padding: 48px 40px; text-align: center; }}
+        .icon {{ font-size: 56px; margin-bottom: 16px; }}
+        h1 {{ font-size: 22px; font-weight: 700; margin-bottom: 8px; }}
+        .subtitle {{ font-size: 14px; color: #7f8c8d; margin-bottom: 24px; }}
+        .info-box {{ background: #f8f9fa; border-radius: 8px; padding: 16px; margin-bottom: 24px;
+                    font-size: 13px; color: #555; line-height: 1.6; text-align: left; }}
+        .info-box strong {{ color: #2c3e50; }}
+        .user-email {{ font-size: 13px; color: #95a5a6; margin-bottom: 24px; }}
+        .btn {{ display: inline-block; padding: 10px 24px; border-radius: 6px; font-size: 14px;
+               font-weight: 600; text-decoration: none; cursor: pointer; border: none; }}
+        .btn-logout {{ background: #e9ecef; color: #495057; }}
+        .btn-logout:hover {{ background: #dee2e6; }}
+        .btn-retry {{ background: #3498db; color: #fff; margin-right: 8px; }}
+        .btn-retry:hover {{ background: #2980b9; }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon">{"🚫" if status == "disabled" else "⏳"}</div>
+        <h1>{"Account Disabled" if status == "disabled" else "Access Pending"}</h1>
+        <p class="subtitle">{"Your account has been disabled by an administrator." if status == "disabled"
+            else f"Welcome, {name}! Your login was successful."}</p>
+        {"" if status == "disabled" else '''<div class="info-box">
+            <strong>What happens next?</strong><br>
+            An administrator has been notified of your access request.
+            Once they assign you a role, you\\'ll be able to use the
+            Onboarding Portal on your next login.<br><br>
+            <strong>Need access sooner?</strong><br>
+            Contact your HR department or system administrator.
+        </div>'''}
+        <div class="user-email">Signed in as {user.get("email", "")}</div>
+        <div>
+            <a href="/" class="btn btn-retry">Check Again</a>
+            <a href="/logout" class="btn btn-logout">Sign Out</a>
+        </div>
+    </div>
+</body>
+</html>""", 200
 
 
 @auth_bp.route("/api/me")

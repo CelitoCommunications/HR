@@ -117,7 +117,7 @@ def update_user(user_id):
 
         if 'role' in data:
             role = data['role'].strip().lower()
-            if role not in ('admin', 'manager', 'hr', 'employee', 'disabled'):
+            if role not in ('admin', 'manager', 'hr', 'employee', 'pending', 'disabled'):
                 return jsonify({'error': 'Invalid role'}), 400
             updates.append('role = ?')
             params.append(role)
