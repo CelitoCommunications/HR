@@ -4,8 +4,8 @@
 #  Creates a Windows Task Scheduler task that starts the
 #  onboarding server automatically when the server boots.
 #
+#  - Runs as celitoadmin (same user that owns Python & files)
 #  - Runs whether or not anyone is logged in
-#  - Uses SYSTEM account (no password needed)
 #  - Will not create a duplicate if the task already exists
 #
 #  Run this script once as Administrator on the server:
@@ -14,9 +14,10 @@
 
 $TaskName    = "CelitoOnboard-AutoStart"
 $TaskFolder  = "\Celito"
+$RunAsUser   = "celitoadmin"
 $ProjectDir  = "C:\Users\celitoadmin\Desktop\Roadmap\HR"
 $BatFile     = Join-Path $ProjectDir "start_onboard.bat"
-$Description = "Starts the Celito Employee Onboarding Platform (Waitress on port 8780) at system boot. Runs as SYSTEM, no user login required."
+$Description = "Starts the Celito Employee Onboarding Platform (Waitress on port 8780) at system boot. Runs as celitoadmin, no interactive login required."
 
 # ── Preflight checks ────────────────────────────────────────
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -56,12 +57,18 @@ if ($existingTask) {
     Write-Host "Old task removed."
 }
 
+# ── Prompt for password ──────────────────────────────────────
+Write-Host ""
+$password = Read-Host "Enter password for '$RunAsUser' (needed for run-without-login)"
+
 # ── Create the scheduled task ────────────────────────────────
 
 # Trigger: at system startup
 $trigger = New-ScheduledTaskTrigger -AtStartup
 
 # Action: run start_onboard.bat from the project directory
+# cmd /c keeps the bat in the foreground so Task Scheduler can
+# track the process and trigger restart-on-failure if it exits.
 $action = New-ScheduledTaskAction `
     -Execute "cmd.exe" `
     -Argument "/c `"$BatFile`"" `
@@ -76,13 +83,7 @@ $settings = New-ScheduledTaskSettingsSet `
     -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit (New-TimeSpan -Days 0)
 
-# Principal: run as SYSTEM, no login required
-$principal = New-ScheduledTaskPrincipal `
-    -UserId "SYSTEM" `
-    -LogonType ServiceAccount `
-    -RunLevel Highest
-
-# Register
+# Register as celitoadmin — avoids SYSTEM vs user file permission conflicts
 Register-ScheduledTask `
     -TaskPath $TaskFolder `
     -TaskName $TaskName `
@@ -90,7 +91,9 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Action $action `
     -Settings $settings `
-    -Principal $principal
+    -User $RunAsUser `
+    -Password $password `
+    -RunLevel Highest
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Green
@@ -99,7 +102,7 @@ Write-Host "============================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Task:         $TaskFolder\$TaskName"
 Write-Host "  Trigger:      At system startup"
-Write-Host "  Runs as:      SYSTEM (no login required)"
+Write-Host "  Runs as:      $RunAsUser (no login required)"
 Write-Host "  Executes:     $BatFile"
 Write-Host "  Working dir:  $ProjectDir"
 Write-Host "  Retries:      3 attempts, 1 min apart"
