@@ -8,6 +8,10 @@ REM ============================================
 
 cd /d "%~dp0"
 
+REM ── Python location ──────────────────────────────────────
+REM SYSTEM account cannot see per-user PATH, so use the full path.
+set PYTHON=C:\Users\celitoadmin\AppData\Local\Programs\Python\Python314\python.exe
+
 REM Create logs directory if it doesn't exist
 if not exist "logs" mkdir logs
 
@@ -29,7 +33,7 @@ echo [%LOGDATE% %time%] Starting Celito Onboarding Server... >> "logs\server_%LO
 
 REM Start python directly (no 'start /MIN' - SYSTEM has no desktop).
 REM Python runs in the foreground so Task Scheduler keeps it alive.
-python backend\server.py >> "logs\server_%LOGDATE%.log" 2>&1
+"%PYTHON%" backend\server.py >> "logs\server_%LOGDATE%.log" 2>&1
 
 REM If we get here, the server exited
 echo [%LOGDATE% %time%] Server process exited with code %ERRORLEVEL%. >> "logs\server_%LOGDATE%.log"
