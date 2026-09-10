@@ -29,15 +29,17 @@ echo.
 
 REM ── Step 2: Pull latest from GitHub ────────────────────────
 echo [Step 2] Pulling latest code from GitHub...
-git pull origin main
+git fetch origin main
 if errorlevel 1 (
     echo.
-    echo *** ERROR: Git pull failed! Resolve conflicts and try again. ***
-    echo *** Server is NOT running. Run start_onboard.bat manually.   ***
+    echo *** ERROR: Git fetch failed! Check network/credentials.     ***
+    echo *** Server is NOT running. Run start_onboard.bat manually.  ***
     pause
     exit /b 1
 )
-echo          Pull complete.
+git reset --hard origin/main
+git clean -fd --exclude=config/ --exclude=logs/ --exclude=*.db
+echo          Pull complete (synced to latest).
 echo.
 
 REM ── Step 3: Start the server ───────────────────────────────
