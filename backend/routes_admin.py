@@ -1010,8 +1010,12 @@ def duplicate_template(template_id):
 @role_required(['admin', 'hr'])
 def export_template(template_id):
     """Export a checklist template as an Excel (.xlsx) file."""
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    except ImportError:
+        logger.error("openpyxl is not installed — run: pip install openpyxl")
+        return jsonify({'error': 'Excel export requires openpyxl. Run: pip install openpyxl'}), 500
 
     db = get_db()
     try:
@@ -1123,7 +1127,11 @@ def import_template():
     Title, Description, Category, Phase, Assigned To, Due Offset (Days).
     Optionally a 'Template Info' sheet with Name, Department, Type, etc.
     """
-    from openpyxl import load_workbook
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        logger.error("openpyxl is not installed — run: pip install openpyxl")
+        return jsonify({'error': 'Excel import requires openpyxl. Run: pip install openpyxl'}), 500
 
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
