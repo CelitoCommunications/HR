@@ -4038,8 +4038,8 @@ async function renderReports(el) {
    ============================================================= */
 async function renderAdmin(el) {
     if (!isRole('admin')) { el.innerHTML = '<div class="empty-state"><h3>Access Denied</h3></div>'; return; }
-    el.innerHTML = `<h1>Administration</h1>
-        <div class="tabs" id="admin-tabs" role="tablist">
+    el.innerHTML = `<h1 style="margin-bottom:12px">Administration</h1>
+        <div class="tabs" id="admin-tabs" style="margin-bottom:12px" role="tablist">
             <div class="tab ${state.adminTab==='users'?'active':''}" ${tabAttrs(state.adminTab==='users')} onclick="state.adminTab='users';switchAdminTab('users')">Users</div>
             <div class="tab ${state.adminTab==='integrations'?'active':''}" ${tabAttrs(state.adminTab==='integrations')} onclick="state.adminTab='integrations';switchAdminTab('integrations')">Integrations</div>
             <div class="tab ${state.adminTab==='audit'?'active':''}" ${tabAttrs(state.adminTab==='audit')} onclick="state.adminTab='audit';switchAdminTab('audit')">Audit Log</div>
