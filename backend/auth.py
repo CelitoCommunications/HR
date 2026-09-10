@@ -56,9 +56,12 @@ def login_required(f):
     @functools.wraps(f)
     def decorated(*args, **kwargs):
         if "user" not in session:
-            # AJAX requests get a 401 so the frontend can redirect cleanly;
-            # a full-page redirect to Microsoft login would fail CORS.
-            if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            # API and AJAX requests get a 401 so the frontend can redirect
+            # cleanly; a full-page redirect to Microsoft login fails CORS
+            # on fetch() calls.  Check the path first (reliable for all
+            # fetch calls), then fall back to the X-Requested-With header.
+            if (request.path.startswith("/api/")
+                    or request.headers.get("X-Requested-With") == "XMLHttpRequest"):
                 return jsonify({"error": "Not authenticated"}), 401
             return redirect(url_for("auth.login", next=request.url))
 
@@ -96,6 +99,9 @@ def role_required(*allowed_roles):
         @functools.wraps(f)
         def decorated(*args, **kwargs):
             if "user" not in session:
+                if (request.path.startswith("/api/")
+                        or request.headers.get("X-Requested-With") == "XMLHttpRequest"):
+                    return jsonify({"error": "Not authenticated"}), 401
                 return redirect(url_for("auth.login", next=request.url))
 
             user_email = session["user"]["email"]
