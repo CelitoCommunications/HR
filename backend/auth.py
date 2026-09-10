@@ -56,6 +56,10 @@ def login_required(f):
     @functools.wraps(f)
     def decorated(*args, **kwargs):
         if "user" not in session:
+            # AJAX requests get a 401 so the frontend can redirect cleanly;
+            # a full-page redirect to Microsoft login would fail CORS.
+            if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                return jsonify({"error": "Not authenticated"}), 401
             return redirect(url_for("auth.login", next=request.url))
 
         # Sync role from DB so admin changes take effect immediately
