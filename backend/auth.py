@@ -63,7 +63,10 @@ def login_required(f):
             if (request.path.startswith("/api/")
                     or request.headers.get("X-Requested-With") == "XMLHttpRequest"):
                 return jsonify({"error": "Not authenticated"}), 401
-            return redirect(url_for("auth.login", next=request.url))
+            # Use request.full_path (relative, e.g. "/onboard/dashboard?x=1")
+            # instead of request.url (absolute, e.g. "https://dash.celito.net/...")
+            # so _is_safe_redirect() won't reject it as an open-redirect.
+            return redirect(url_for("auth.login", next=request.full_path))
 
         # Sync role from DB so admin changes take effect immediately
         email = session["user"].get("email")
@@ -102,7 +105,7 @@ def role_required(*allowed_roles):
                 if (request.path.startswith("/api/")
                         or request.headers.get("X-Requested-With") == "XMLHttpRequest"):
                     return jsonify({"error": "Not authenticated"}), 401
-                return redirect(url_for("auth.login", next=request.url))
+                return redirect(url_for("auth.login", next=request.full_path))
 
             user_email = session["user"]["email"]
             conn = get_db()
