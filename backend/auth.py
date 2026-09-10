@@ -196,7 +196,7 @@ def login():
     return redirect(auth_url)
 
 
-@auth_bp.route("/auth/callback")
+@auth_bp.route("/auth/onboard/callback")
 def auth_callback():
     """Handle the OAuth callback from Microsoft Entra ID."""
     code = request.args.get("code")
