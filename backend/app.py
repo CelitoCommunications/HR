@@ -37,6 +37,8 @@ def create_app():
     migrate_db()
     app.secret_key = get_or_create_session_secret()
     app.permanent_session_lifetime = timedelta(hours=24)
+    app.config["SESSION_COOKIE_NAME"] = "celito_onboard_session"
+    app.config["SESSION_COOKIE_PATH"] = "/onboard"
 
     # ── Register blueprints ───────────────────────────────────────────
     from .auth import auth_bp
