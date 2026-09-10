@@ -4,11 +4,12 @@ Handles user management, settings, audit logs, integration testing,
 checklist templates, cohorts, surveys, equipment, metrics, and bulk ops.
 """
 
+import io
 import json
 import logging
 from datetime import datetime, date, timedelta
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_file
 
 from .auth import login_required, role_required, get_current_user
 from .db import get_db, take_monthly_snapshot
@@ -757,7 +758,7 @@ def get_stats():
 
 @admin_bp.route('/templates', methods=['GET'])
 @login_required
-@role_required(['admin'])
+@role_required(['admin', 'hr'])
 def list_templates():
     """List all checklist templates."""
     db = get_db()
@@ -857,7 +858,7 @@ def get_template_defaults():
 
 @admin_bp.route('/templates', methods=['POST'])
 @login_required
-@role_required(['admin'])
+@role_required(['admin', 'hr'])
 def create_template():
     """Create a new checklist template."""
     data = request.get_json(silent=True)
@@ -902,7 +903,7 @@ def create_template():
 
 @admin_bp.route('/templates/<int:template_id>', methods=['PUT'])
 @login_required
-@role_required(['admin'])
+@role_required(['admin', 'hr'])
 def update_template(template_id):
     """Update a checklist template."""
     data = request.get_json(silent=True)
@@ -953,7 +954,7 @@ def update_template(template_id):
 
 @admin_bp.route('/templates/<int:template_id>', methods=['DELETE'])
 @login_required
-@role_required(['admin'])
+@role_required(['admin', 'hr'])
 def delete_template(template_id):
     """Soft-delete a checklist template."""
     db = get_db()
@@ -973,7 +974,7 @@ def delete_template(template_id):
 
 @admin_bp.route('/templates/<int:template_id>/duplicate', methods=['POST'])
 @login_required
-@role_required(['admin'])
+@role_required(['admin', 'hr'])
 def duplicate_template(template_id):
     """Duplicate a checklist template with a new name."""
     db = get_db()
@@ -1001,6 +1002,239 @@ def duplicate_template(template_id):
 
     _audit('template_duplicated', 'checklist_template', new_id,
            {'source_id': template_id, 'new_name': new_name})
+    return jsonify(result), 201
+
+
+@admin_bp.route('/templates/<int:template_id>/export', methods=['GET'])
+@login_required
+@role_required(['admin', 'hr'])
+def export_template(template_id):
+    """Export a checklist template as an Excel (.xlsx) file."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    db = get_db()
+    try:
+        row = db.execute(
+            "SELECT * FROM checklist_templates WHERE id = ? AND is_active = 1",
+            (template_id,)
+        ).fetchone()
+        if not row:
+            return jsonify({'error': 'Template not found'}), 404
+        tmpl = dict(row)
+    finally:
+        db.close()
+
+    tasks = json.loads(tmpl['tasks_json']) if tmpl.get('tasks_json') else []
+
+    wb = Workbook()
+
+    # ── Info sheet ──
+    info_ws = wb.active
+    info_ws.title = 'Template Info'
+    header_font = Font(bold=True, size=12, color='FFFFFF')
+    header_fill = PatternFill(start_color='2563EB', end_color='2563EB', fill_type='solid')
+    label_font = Font(bold=True)
+    thin_border = Border(
+        left=Side(style='thin', color='D1D5DB'),
+        right=Side(style='thin', color='D1D5DB'),
+        top=Side(style='thin', color='D1D5DB'),
+        bottom=Side(style='thin', color='D1D5DB'),
+    )
+
+    info_ws.column_dimensions['A'].width = 20
+    info_ws.column_dimensions['B'].width = 50
+
+    info_fields = [
+        ('Template Name', tmpl['name']),
+        ('Department', tmpl.get('department') or 'All'),
+        ('Type', tmpl.get('checklist_type', 'onboarding')),
+        ('Phase', tmpl.get('phase') or ''),
+        ('Location Mode', tmpl.get('location_mode', 'all')),
+        ('Total Tasks', str(len(tasks))),
+    ]
+    for i, (label, value) in enumerate(info_fields, start=1):
+        cell_a = info_ws.cell(row=i, column=1, value=label)
+        cell_a.font = label_font
+        cell_a.border = thin_border
+        cell_b = info_ws.cell(row=i, column=2, value=value)
+        cell_b.border = thin_border
+
+    # ── Tasks sheet ──
+    tasks_ws = wb.create_sheet('Tasks')
+
+    columns = [
+        ('Title', 40),
+        ('Description', 50),
+        ('Category', 15),
+        ('Phase', 25),
+        ('Assigned To', 25),
+        ('Due Offset (Days)', 18),
+    ]
+    for col_idx, (col_name, width) in enumerate(columns, start=1):
+        cell = tasks_ws.cell(row=1, column=col_idx, value=col_name)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal='center')
+        cell.border = thin_border
+        tasks_ws.column_dimensions[cell.column_letter].width = width
+
+    for row_idx, t in enumerate(tasks, start=2):
+        values = [
+            t.get('title', ''),
+            t.get('description', ''),
+            t.get('category', ''),
+            t.get('phase', ''),
+            t.get('assigned_to', ''),
+            t.get('due_offset_days', 0),
+        ]
+        for col_idx, val in enumerate(values, start=1):
+            cell = tasks_ws.cell(row=row_idx, column=col_idx, value=val)
+            cell.border = thin_border
+            if col_idx == 6:
+                cell.alignment = Alignment(horizontal='center')
+
+    # Auto-filter on the Tasks sheet
+    if tasks:
+        tasks_ws.auto_filter.ref = f"A1:F{len(tasks) + 1}"
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    safe_name = tmpl['name'].replace(' ', '_').replace('/', '-')[:50]
+    filename = f"template_{safe_name}.xlsx"
+
+    _audit('template_exported', 'checklist_template', template_id, {'name': tmpl['name']})
+    return send_file(
+        buffer, as_attachment=True, download_name=filename,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+
+
+@admin_bp.route('/templates/import', methods=['POST'])
+@login_required
+@role_required(['admin', 'hr'])
+def import_template():
+    """Import a checklist template from an Excel (.xlsx) file.
+
+    Expects a multipart file upload with the field name 'file'.
+    The Excel file should have a 'Tasks' sheet with columns:
+    Title, Description, Category, Phase, Assigned To, Due Offset (Days).
+    Optionally a 'Template Info' sheet with Name, Department, Type, etc.
+    """
+    from openpyxl import load_workbook
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    f = request.files['file']
+    if not f.filename or not f.filename.lower().endswith('.xlsx'):
+        return jsonify({'error': 'Please upload an Excel (.xlsx) file'}), 400
+
+    try:
+        wb = load_workbook(f, read_only=True, data_only=True)
+    except Exception as e:
+        logger.warning("Failed to parse uploaded Excel: %s", e)
+        return jsonify({'error': 'Could not read Excel file. Make sure it is a valid .xlsx file.'}), 400
+
+    # ── Read template info (optional) ──
+    name = ''
+    department = ''
+    checklist_type = 'onboarding'
+    phase = ''
+    location_mode = 'all'
+
+    if 'Template Info' in wb.sheetnames:
+        info_ws = wb['Template Info']
+        info_map = {}
+        for row in info_ws.iter_rows(min_row=1, max_col=2, values_only=True):
+            if row[0]:
+                info_map[str(row[0]).strip().lower()] = str(row[1] or '').strip()
+        name = info_map.get('template name', '')
+        dept_val = info_map.get('department', '')
+        department = '' if dept_val.lower() == 'all' else dept_val
+        ct = info_map.get('type', 'onboarding').lower()
+        checklist_type = ct if ct in ('onboarding', 'offboarding') else 'onboarding'
+        phase = info_map.get('phase', '')
+        lm = info_map.get('location mode', 'all').lower()
+        location_mode = lm if lm in ('in-office', 'remote', 'hybrid', 'all') else 'all'
+
+    # ── Read tasks ──
+    tasks_ws = None
+    if 'Tasks' in wb.sheetnames:
+        tasks_ws = wb['Tasks']
+    else:
+        # Fall back to first sheet if no "Tasks" sheet
+        tasks_ws = wb.worksheets[0]
+
+    tasks = []
+    headers = []
+    for row_idx, row in enumerate(tasks_ws.iter_rows(values_only=True)):
+        if row_idx == 0:
+            # Map header names to column indices (case-insensitive)
+            headers = [str(c or '').strip().lower() for c in row]
+            continue
+        if not any(row):
+            continue  # skip empty rows
+
+        def _col(name, default=''):
+            """Get cell value by header name."""
+            for alias in (name,):
+                if alias in headers:
+                    val = row[headers.index(alias)]
+                    return str(val).strip() if val is not None else default
+            return default
+
+        title = _col('title')
+        if not title:
+            continue  # skip rows without a title
+
+        due_raw = _col('due offset (days)', '0')
+        try:
+            due_days = int(float(due_raw))
+        except (ValueError, TypeError):
+            due_days = 0
+
+        tasks.append({
+            'title': title,
+            'description': _col('description'),
+            'category': _col('category', 'hr').lower(),
+            'phase': _col('phase', 'company_onboarding'),
+            'assigned_to': _col('assigned to'),
+            'due_offset_days': due_days,
+        })
+
+    wb.close()
+
+    if not tasks:
+        return jsonify({'error': 'No tasks found in the Excel file. Make sure the Tasks sheet has a Title column with at least one row.'}), 400
+
+    # Default name from filename if not in the info sheet
+    if not name:
+        name = f.filename.rsplit('.', 1)[0].replace('_', ' ').replace('-', ' ').strip()
+        # Remove "template" prefix if present
+        if name.lower().startswith('template '):
+            name = name[9:].strip()
+        name = name or 'Imported Template'
+
+    now = datetime.utcnow().isoformat()
+    db = get_db()
+    try:
+        db.execute(
+            "INSERT INTO checklist_templates (name, department, checklist_type, phase, tasks_json, location_mode, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, department or None, checklist_type, phase or None,
+             json.dumps(tasks), location_mode, now, now),
+        )
+        db.commit()
+        tid = db.execute("SELECT last_insert_rowid() as id").fetchone()['id']
+        result = dict(db.execute("SELECT * FROM checklist_templates WHERE id = ?", (tid,)).fetchone())
+    finally:
+        db.close()
+
+    _audit('template_imported', 'checklist_template', tid,
+           {'name': name, 'task_count': len(tasks), 'filename': f.filename})
     return jsonify(result), 201
 
 

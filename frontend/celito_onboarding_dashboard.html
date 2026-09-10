@@ -3366,6 +3366,7 @@ async function renderTemplates(el) {
     el.innerHTML = `<div class="action-bar"><h1 style="margin-bottom:0">Checklist Templates</h1>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-primary" onclick="showNewTemplateChooser()">+ New Template</button>
+            <button class="btn btn-secondary" onclick="importTemplateFromExcel()">📥 Import Excel</button>
         </div></div>
         <div class="card" id="templates-content"><div class="loading-center"><div class="spinner lg"></div></div></div>`;
     const data = await api('/api/admin/templates');
@@ -3381,6 +3382,7 @@ async function renderTemplates(el) {
                 <td>${taskCount} tasks</td><td>${t.is_active?'<span class="badge badge-success">Active</span>':'<span class="badge badge-secondary">Inactive</span>'}</td>
                 <td style="white-space:nowrap"><button class="btn btn-xs btn-secondary" onclick="editTemplateModal(${t.id})">Edit</button>
                     <button class="btn btn-xs btn-secondary" onclick="duplicateTemplate(${t.id})">Clone</button>
+                    <button class="btn btn-xs btn-secondary" onclick="exportTemplate(${t.id})" title="Export to Excel">📤 Export</button>
                     <button class="btn btn-xs btn-danger" onclick="deactivateTemplate(${t.id})">Deactivate</button></td></tr>`;
         }).join('')
     }</tbody></table></div>`;
@@ -3566,6 +3568,55 @@ async function duplicateTemplate(id) {
     if (r) { showToast('Template cloned'); renderTemplates(document.getElementById('main-content')); }
 }
 async function deactivateTemplate(id) { confirmDialog('Deactivate this template?', async () => { const r = await api('/api/admin/templates/' + id, { method: 'DELETE' }); if (r) { showToast('Template deactivated'); renderTemplates(document.getElementById('main-content')); } }); }
+
+function exportTemplate(id) {
+    // Direct download — the backend streams the .xlsx file
+    const url = BASE_PATH + '/api/admin/templates/' + id + '/export';
+    const a = document.createElement('a');
+    a.href = url;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast('Exporting template…', 'info');
+}
+
+function importTemplateFromExcel() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.xlsx';
+    input.style.display = 'none';
+    input.addEventListener('change', async function() {
+        const file = this.files[0];
+        if (!file) return;
+        if (!file.name.toLowerCase().endsWith('.xlsx')) {
+            showToast('Please select an Excel (.xlsx) file', 'error');
+            return;
+        }
+        showToast('Importing template…', 'info');
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            const res = await fetch(BASE_PATH + '/api/admin/templates/import', {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                body: formData,
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                showToast(data.error || 'Import failed', 'error');
+                return;
+            }
+            showToast('Template "' + (data.name || 'Imported') + '" imported with ' + (JSON.parse(data.tasks_json || '[]').length) + ' tasks', 'success');
+            renderTemplates(document.getElementById('main-content'));
+        } catch (e) {
+            showToast('Import failed: ' + e.message, 'error');
+        }
+    });
+    document.body.appendChild(input);
+    input.click();
+    document.body.removeChild(input);
+}
 
 /* =============================================================
    TASK COMMENT / BLOCKER (EMPLOYEE)

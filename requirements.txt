@@ -3,3 +3,4 @@ waitress
 msal
 requests
 python-docx
+openpyxl
