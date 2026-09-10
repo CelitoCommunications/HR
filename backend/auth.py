@@ -50,11 +50,28 @@ def _get_msal_app():
 # ──────────────────────────────────────────────────────────────────────
 
 def login_required(f):
-    """Redirect to /login if no active session; block pending/disabled users."""
+    """Redirect to /login if no active session; block pending/disabled users.
+    Also syncs the session role from the DB so role changes take effect
+    without requiring re-login."""
     @functools.wraps(f)
     def decorated(*args, **kwargs):
         if "user" not in session:
             return redirect(url_for("auth.login", next=request.url))
+
+        # Sync role from DB so admin changes take effect immediately
+        email = session["user"].get("email")
+        if email:
+            conn = get_db()
+            try:
+                row = conn.execute(
+                    "SELECT role FROM users WHERE email = ?", (email,)
+                ).fetchone()
+            finally:
+                conn.close()
+            if row and row["role"] != session["user"].get("role"):
+                session["user"]["role"] = row["role"]
+                session.modified = True
+
         role = session["user"].get("role", "")
         if role in ("pending", "disabled"):
             return redirect(url_for("auth.access_pending"))
