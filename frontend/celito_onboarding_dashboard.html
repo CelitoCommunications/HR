@@ -2145,6 +2145,7 @@ async function renderEmployeeDetail(el) {
 
         ${isRole('admin','hr') ? `<div class="btn-group" style="margin-bottom:20px">
             ${['pending','active'].includes(emp.status) ? `<button class="btn btn-primary" onclick="startOnboarding(${id})">🟢 Start Onboarding</button>` : ''}
+            ${['active','onboarding'].includes(emp.status) ? `<button class="btn btn-secondary" onclick="editOnboarding(${id})">✏️ Edit Onboarding</button>` : ''}
             ${['active','onboarding'].includes(emp.status) ? `<button class="btn btn-warning" onclick="showOffboardModal(${id})">🔴 Start Offboarding</button>` : ''}
             <button class="btn btn-secondary" onclick="generateWelcomeLetter(${id})">📄 Welcome Letter</button>
             <button class="btn btn-secondary" onclick="syncSalesforce(${id})">☁️ Sync SF</button>
@@ -2560,6 +2561,211 @@ function autoExcludeLocationMismatch(empLoc) {
         }
     });
     showToast(excluded + ' location-mismatched task' + (excluded !== 1 ? 's' : '') + ' excluded', 'success');
+}
+
+/* =============================================================
+   EDIT ONBOARDING — inline reassignment modal
+   ============================================================= */
+async function editOnboarding(empId) {
+    showToast('Loading checklist...', 'info');
+    const rawData = await api('/api/employees/' + empId + '/checklist');
+    const data = Array.isArray(rawData) ? rawData.find(c => c.status === 'active') || rawData[0] : rawData;
+    if (!data || !(data.tasks || []).length) {
+        showToast('No active checklist found — start onboarding first', 'warning');
+        return;
+    }
+    const emp = await api('/api/employees/' + empId);
+    if (!emp) return;
+    const empName = (emp.first_name || '') + ' ' + (emp.last_name || '');
+
+    const tasks = data.tasks || [];
+    const phaseLabels = {
+        pre_boarding: '🚀 Pre-Boarding', company_onboarding: '🏢 Company Onboarding',
+        department_onboarding: '💼 Department Onboarding', role_specific: '💼 Role-specific',
+        role_training: '🎓 Role Training', integration: '🤝 Integration', ongoing: '📈 Ongoing'
+    };
+    const phaseOrder = ['pre_boarding', 'company_onboarding', 'department_onboarding', 'role_specific', 'role_training', 'integration', 'ongoing'];
+    const catColors = {hr: '#4dabf7', it: '#51cf66', admin: '#ffd43b', team: '#ff922b', manager: '#cc5de8', employee: '#20c997'};
+    const catLabels = {hr: 'Human Resources', it: 'IT / Service Desk', admin: 'Admin', team: 'Team', manager: 'Manager', employee: 'Employee'};
+
+    // Summary stats
+    const total = tasks.length;
+    const completed = tasks.filter(t => t.status === 'completed').length;
+    const pending = tasks.filter(t => t.status === 'pending' || t.status === 'in_progress').length;
+
+    var html = '<div style="margin-bottom:12px;font-size:13px;color:var(--text-light)">';
+    html += 'Edit task assignments for <strong>' + esc(empName) + '</strong>. ';
+    html += '<strong>' + total + '</strong> tasks total — ' + completed + ' completed, ' + pending + ' pending.';
+    html += '</div>';
+
+    // Category breakdown
+    var cats = {};
+    tasks.forEach(function(t) { cats[t.category] = (cats[t.category] || 0) + 1; });
+    html += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">';
+    for (var cat in cats) {
+        var color = catColors[cat] || '#868e96';
+        html += '<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600">';
+        html += '<span style="width:8px;height:8px;border-radius:50%;background:' + color + ';display:inline-block"></span>';
+        html += esc(catLabels[cat] || cat) + ': ' + cats[cat] + '</span>';
+    }
+    html += '</div>';
+
+    // Filter bar
+    html += '<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">';
+    html += '<label style="font-size:12px;font-weight:600">Filter:</label>';
+    html += '<select id="edit-ob-phase-filter" onchange="filterEditOnboarding()" class="form-control" style="width:auto;font-size:12px;padding:4px 8px">';
+    html += '<option value="">All Phases</option>';
+    phaseOrder.forEach(function(p) {
+        if (tasks.some(function(t) { return t.phase === p; })) html += '<option value="' + p + '">' + esc(phaseLabels[p] || p) + '</option>';
+    });
+    html += '</select>';
+    html += '<select id="edit-ob-status-filter" onchange="filterEditOnboarding()" class="form-control" style="width:auto;font-size:12px;padding:4px 8px">';
+    html += '<option value="">All Statuses</option>';
+    html += '<option value="pending">Pending</option><option value="in_progress">In Progress</option>';
+    html += '<option value="completed">Completed</option><option value="skipped">Skipped</option>';
+    html += '</select>';
+    html += '<div style="margin-left:auto;font-size:12px;color:var(--text-light)" id="edit-ob-change-count">No changes</div>';
+    html += '</div>';
+
+    // Tasks grouped by phase with editable assignee fields
+    var allPhases = phaseOrder.slice();
+    tasks.forEach(function(t) { if (t.phase && allPhases.indexOf(t.phase) === -1) allPhases.push(t.phase); });
+
+    for (var pi = 0; pi < allPhases.length; pi++) {
+        var phase = allPhases[pi];
+        var phaseTasks = tasks.filter(function(t) { return t.phase === phase && !t.parent_task_id; });
+        if (!phaseTasks.length) continue;
+        var pDone = phaseTasks.filter(function(t) { return t.status === 'completed'; }).length;
+        var pPct = Math.round((pDone / phaseTasks.length) * 100);
+
+        html += '<details class="edit-ob-phase" data-phase="' + phase + '" style="margin-bottom:10px" open>';
+        html += '<summary style="cursor:pointer;font-weight:600;font-size:14px;padding:6px 0;border-bottom:1px solid var(--border-color)">';
+        html += esc(phaseLabels[phase] || phase) + ' <span class="badge badge-secondary">' + pDone + '/' + phaseTasks.length + '</span>';
+        html += '</summary>';
+        html += '<div style="max-height:320px;overflow-y:auto;padding:4px 0">';
+
+        for (var ti = 0; ti < phaseTasks.length; ti++) {
+            var t = phaseTasks[ti];
+            html += _editOnboardingTaskRow(t, tasks);
+            // Subtasks
+            var subs = tasks.filter(function(s) { return s.parent_task_id === t.id; });
+            for (var si = 0; si < subs.length; si++) {
+                html += _editOnboardingTaskRow(subs[si], tasks, true);
+            }
+        }
+        html += '</div></details>';
+    }
+
+    // Tasks without a phase
+    var noPhase = tasks.filter(function(t) { return !t.phase && !t.parent_task_id; });
+    if (noPhase.length) {
+        html += '<details class="edit-ob-phase" data-phase="" style="margin-bottom:10px" open>';
+        html += '<summary style="cursor:pointer;font-weight:600;font-size:14px;padding:6px 0;border-bottom:1px solid var(--border-color)">Other Tasks (' + noPhase.length + ')</summary>';
+        html += '<div style="max-height:320px;overflow-y:auto;padding:4px 0">';
+        noPhase.forEach(function(t) { html += _editOnboardingTaskRow(t, tasks); });
+        html += '</div></details>';
+    }
+
+    // Store original values for change detection
+    window._editObOriginal = {};
+    tasks.forEach(function(t) {
+        window._editObOriginal[t.id] = { assigned_to: t.assigned_to || '', assigned_email: t.assigned_email || '' };
+    });
+
+    showModal('✏️ Edit Onboarding — ' + esc(empName), html, {
+        wide: true,
+        footer: '<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>' +
+                ' <button class="btn btn-primary" id="save-edit-onboard-btn" style="font-weight:600" disabled>💾 Save Changes</button>'
+    });
+
+    document.getElementById('save-edit-onboard-btn').onclick = function() { saveEditOnboarding(empId); };
+
+    // Attach change listeners
+    document.querySelectorAll('.edit-ob-name, .edit-ob-email').forEach(function(inp) {
+        inp.addEventListener('input', trackEditOnboardingChanges);
+    });
+}
+
+function _editOnboardingTaskRow(t, allTasks, isSub) {
+    var statusIcon = t.status === 'completed' ? '✅' : t.status === 'skipped' ? '⏭️' : t.status === 'in_progress' ? '🔄' : t.status === 'blocked' ? '🔒' : '⬜';
+    var opacity = (t.status === 'completed' || t.status === 'skipped') ? 'opacity:0.6;' : '';
+    var indent = isSub ? 'padding-left:24px;' : '';
+    var secBadge = t.is_security_critical ? ' <span style="color:#e74c3c;font-size:10px">🔒</span>' : '';
+
+    var row = '<div class="edit-ob-task" data-task-id="' + t.id + '" data-status="' + (t.status||'pending') + '" style="' + indent + opacity + 'display:flex;align-items:center;gap:8px;padding:6px 4px;font-size:13px;border-bottom:1px solid var(--border-color-light, #eee)">';
+    row += '<span style="flex-shrink:0;width:20px;text-align:center" title="' + esc(t.status || 'pending') + '">' + statusIcon + '</span>';
+    row += '<div style="flex:1;min-width:0"><div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + esc(t.title) + '">' + esc(t.title) + secBadge + '</div></div>';
+    row += '<input class="form-control edit-ob-name" data-task-id="' + t.id + '" value="' + esc(t.assigned_to || '') + '" placeholder="Name" style="width:120px;font-size:12px;padding:4px 6px;flex-shrink:0" title="Assignee name">';
+    row += '<input class="form-control edit-ob-email" data-task-id="' + t.id + '" value="' + esc(t.assigned_email || '') + '" placeholder="email@celito.net" style="width:170px;font-size:12px;padding:4px 6px;flex-shrink:0" title="Assignee email" type="email">';
+    row += '</div>';
+    return row;
+}
+
+function trackEditOnboardingChanges() {
+    var changes = _getEditOnboardingChanges();
+    var btn = document.getElementById('save-edit-onboard-btn');
+    var counter = document.getElementById('edit-ob-change-count');
+    if (changes.length > 0) {
+        btn.disabled = false;
+        btn.textContent = '💾 Save ' + changes.length + ' Change' + (changes.length !== 1 ? 's' : '');
+        if (counter) counter.textContent = changes.length + ' change' + (changes.length !== 1 ? 's' : '');
+    } else {
+        btn.disabled = true;
+        btn.textContent = '💾 Save Changes';
+        if (counter) counter.textContent = 'No changes';
+    }
+}
+
+function _getEditOnboardingChanges() {
+    var changes = [];
+    var orig = window._editObOriginal || {};
+    document.querySelectorAll('.edit-ob-task').forEach(function(row) {
+        var taskId = parseInt(row.getAttribute('data-task-id'));
+        var nameInput = row.querySelector('.edit-ob-name');
+        var emailInput = row.querySelector('.edit-ob-email');
+        if (!nameInput || !emailInput) return;
+        var newName = nameInput.value.trim();
+        var newEmail = emailInput.value.trim();
+        var o = orig[taskId] || { assigned_to: '', assigned_email: '' };
+        if (newName !== o.assigned_to || newEmail !== o.assigned_email) {
+            changes.push({ task_id: taskId, assigned_to: newName, assigned_email: newEmail });
+        }
+    });
+    return changes;
+}
+
+function filterEditOnboarding() {
+    var phaseFilter = (document.getElementById('edit-ob-phase-filter') || {}).value || '';
+    var statusFilter = (document.getElementById('edit-ob-status-filter') || {}).value || '';
+    document.querySelectorAll('.edit-ob-phase').forEach(function(section) {
+        var sPhase = section.getAttribute('data-phase');
+        if (phaseFilter && sPhase !== phaseFilter) { section.hidden = true; return; }
+        section.hidden = false;
+        section.querySelectorAll('.edit-ob-task').forEach(function(row) {
+            var tStatus = row.getAttribute('data-status');
+            row.hidden = statusFilter ? tStatus !== statusFilter : false;
+        });
+    });
+}
+
+async function saveEditOnboarding(empId) {
+    var changes = _getEditOnboardingChanges();
+    if (!changes.length) { showToast('No changes to save', 'info'); return; }
+
+    var btn = document.getElementById('save-edit-onboard-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    var result = await api('/api/tasks/bulk-reassign', { method: 'PUT', body: { assignments: changes } });
+    if (result && result.ok) {
+        showToast(result.updated + ' task' + (result.updated !== 1 ? 's' : '') + ' updated', 'success');
+        closeModal();
+        render();
+    } else {
+        btn.disabled = false;
+        btn.textContent = '💾 Save Changes';
+        showToast('Failed to save changes', 'error');
+    }
 }
 
 async function showOffboardModal(id) {
