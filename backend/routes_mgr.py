@@ -3182,7 +3182,7 @@ def _sync_equipment_task_status(db, employee_id, equipment_type, new_status, sou
         db.commit()
 
 
-@mgr_bp.route('/equipment/<int:eq_id>', methods=['PUT'])
+@mgr_bp.route('/equipment/<int:eq_id>', methods=['PUT', 'POST'])
 @login_required
 @role_required(['admin', 'hr', 'manager'])
 def update_equipment(eq_id):

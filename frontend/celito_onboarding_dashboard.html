@@ -2977,7 +2977,7 @@ async function updateEquipment(empId, eqId) {
         tracking_number: document.getElementById('eeq-tracking')?.value,
         notes: document.getElementById('eeq-notes')?.value,
     };
-    var r = await api('/api/equipment/' + eqId, { method: 'PUT', body: body });
+    var r = await api('/api/equipment/' + eqId, { method: 'POST', body: body });
     if (r) { showToast('Equipment updated', 'success'); closeModal(); switchEmpTab('equipment', empId); }
 }
 
@@ -2990,7 +2990,7 @@ async function deleteEquipment(empId, eqId, itemName) {
 async function updateEquipStatus(equipId, newStatus) {
     try {
         await api('/api/equipment/' + equipId, {
-            method: 'PUT', body: { status: newStatus }
+            method: 'POST', body: { status: newStatus }
         });
         showToast('Equipment status updated' + (newStatus === 'returned' ? ' — offboarding tasks synced' : ''), 'success');
         switchEmpTab('equipment', state.selectedEmployee);
