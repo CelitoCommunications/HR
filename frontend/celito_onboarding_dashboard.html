@@ -2846,8 +2846,14 @@ async function renderOnboarding(el) {
 }
 
 async function loadOnboardingList(filter) {
-    const data = await api('/api/employees?status=onboarding');
-    let emps = data?.employees || data || [];
+    // Fetch active employees (onboarding sets status='active') plus pending ones with checklists
+    const [activeData, pendingData] = await Promise.all([
+        api('/api/employees?status=active'),
+        api('/api/employees?status=pending')
+    ]);
+    let emps = [...(activeData?.employees || activeData || []), ...(pendingData?.employees || pendingData || [])];
+    // Only show employees that have an active checklist (progress > 0 or tasks exist)
+    // Active employees without a checklist are already onboarded — still show them
     if (filter !== 'all') {
         emps = emps.filter(e => currentPhaseFromStart(e.start_date) === filter);
     }
