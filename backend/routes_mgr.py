@@ -84,6 +84,34 @@ def _can_access_employee(user, employee):
     return False
 
 
+def _resolve_assigned_email(assigned_to, emp):
+    """Resolve a role label (e.g. 'Manager', 'HR', 'SysAdmin') to an actual
+    email address using the employee record and team assignment config.
+
+    If the task already has an assigned_email, this is not needed — call it
+    only when assigned_email is missing and assigned_to contains a role label.
+    """
+    if not assigned_to:
+        return ''
+    role = assigned_to.strip().lower()
+    mapping = {
+        'manager':       emp.get('manager_email', ''),
+        'hiring manager': emp.get('manager_email', ''),
+        'hr':            emp.get('hr_owner_email', '') or config.get('team_assignments.hr_email', ''),
+        'human resources': emp.get('hr_owner_email', '') or config.get('team_assignments.hr_email', ''),
+        'sysadmin':      config.get('team_assignments.sysadmin_email', ''),
+        'servicedesk':   config.get('team_assignments.servicedesk_email', ''),
+        'service desk':  config.get('team_assignments.servicedesk_email', ''),
+        'it':            config.get('team_assignments.servicedesk_email', ''),
+        'voice dept':    config.get('team_assignments.voice_dept_email', ''),
+        'voice':         config.get('team_assignments.voice_dept_email', ''),
+        'facilities':    config.get('team_assignments.facilities_email', ''),
+        'employee':      emp.get('email', ''),
+        'dept leader':   '',  # no config for this yet
+    }
+    return mapping.get(role, '')
+
+
 def _offset_date(start_date, offset_days):
     """Calculate a due date from start_date + offset_days."""
     try:
@@ -1736,12 +1764,15 @@ def preview_onboarding(emp_id):
                     if _check_condition(task_def.get('conditions'), emp_dict):
                         phase = task_def.get('phase', tmpl['phase'] or 'company_onboarding')
                         due = _offset_date(start_date, task_def.get('due_offset_days', 0))
+                        assigned_to = task_def.get('assigned_to', '')
+                        assigned_email = task_def.get('assigned_email', '') or _resolve_assigned_email(assigned_to, emp_dict)
                         preview_tasks.append({
                             'title': task_def.get('title', ''),
                             'description': task_def.get('description', ''),
                             'category': task_def.get('category', 'hr'),
                             'phase': phase,
-                            'assigned_to': task_def.get('assigned_to', ''),
+                            'assigned_to': assigned_to,
+                            'assigned_email': assigned_email,
                             'due_date': due,
                             'is_acknowledgment': task_def.get('is_acknowledgment', False),
                             'is_security_critical': task_def.get('is_security_critical', False),
@@ -1886,6 +1917,9 @@ def start_onboarding(emp_id):
                 for task_def in tmpl_tasks:
                     if _check_condition(task_def.get('conditions'), emp_dict):
                         task_def.setdefault('phase', tmpl['phase'] or 'company_onboarding')
+                        # Resolve role labels to actual emails if not already set
+                        if not task_def.get('assigned_email') and task_def.get('assigned_to'):
+                            task_def['assigned_email'] = _resolve_assigned_email(task_def['assigned_to'], emp_dict)
                         _insert_task(db, checklist_id, emp_id, task_def, start_date, sort_order)
                         sort_order += 1
         else:
@@ -2063,6 +2097,24 @@ def get_checklist(emp_id):
         query += ' ORDER BY created_at DESC'
 
         checklists = db.execute(query, params).fetchall()
+
+        # Backfill assigned_email for tasks that have a role label but no email
+        emp_dict = dict(emp)
+        backfill_count = 0
+        unresolved = db.execute(
+            "SELECT id, assigned_to FROM tasks WHERE employee_id = ? "
+            "AND (assigned_email IS NULL OR assigned_email = '') "
+            "AND assigned_to IS NOT NULL AND assigned_to != ''",
+            (emp_id,)
+        ).fetchall()
+        for row in unresolved:
+            email = _resolve_assigned_email(row['assigned_to'], emp_dict)
+            if email:
+                db.execute('UPDATE tasks SET assigned_email = ? WHERE id = ?', (email, row['id']))
+                backfill_count += 1
+        if backfill_count:
+            db.commit()
+            logger.info("Backfilled assigned_email for %d tasks (emp_id=%s)", backfill_count, emp_id)
 
         result = []
         for cl in checklists:

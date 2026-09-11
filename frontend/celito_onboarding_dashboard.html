@@ -2499,7 +2499,7 @@ async function startOnboarding(id) {
             html += '<input type="checkbox" checked onchange="togglePreviewTask(\'' + tid + '\',' + JSON.stringify(t.title) + ',this.checked)" style="margin-top:2px;width:16px;height:16px;flex-shrink:0">';
             html += '<div style="flex:1;min-width:0">';
             html += '<div style="font-weight:500">' + esc(t.title) + secBadge + ackBadge + locBadge + '</div>';
-            html += '<div style="font-size:11px;color:var(--text-light)">' + esc(t.category || '') + ' · ' + esc(t.assigned_to || 'Unassigned') + (t.due_date ? ' · Due ' + t.due_date : '') + '</div>';
+            html += '<div style="font-size:11px;color:var(--text-light)">' + esc(t.category || '') + ' · ' + esc(t.assigned_to || 'Unassigned') + (t.assigned_email ? ' (' + esc(t.assigned_email) + ')' : '') + (t.due_date ? ' · Due ' + t.due_date : '') + '</div>';
             html += '</div></div>';
             taskIdx++;
         }
