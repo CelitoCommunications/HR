@@ -2259,23 +2259,27 @@ async function switchEmpTab(tab, empId) {
     } else if (tab === 'equipment') {
         const data = await api('/api/employees/' + empId + '/equipment');
         const items = data?.equipment || data || [];
+        const canEdit = isRole('admin','hr','manager');
+        const canDelete = isRole('admin','hr');
         let html = `<div class="card"><div class="card-header"><h2>Equipment</h2>
-            ${isRole('admin','hr') ? `<button class="btn btn-sm btn-primary" onclick="showAddEquipModal(${empId})">+ Add</button>` : ''}</div>`;
+            ${canDelete ? `<button class="btn btn-sm btn-primary" onclick="showAddEquipModal(${empId})">+ Add</button>` : ''}</div>`;
         if (!items.length) { html += '<div class="empty-state"><p>No equipment tracked</p></div>'; }
         else {
-            html += `<div class="table-wrap"><table><thead><tr><th>Item</th><th>Model</th><th>Serial #</th><th>Tracking</th><th>Status</th><th>Notes</th></tr></thead><tbody>${
+            const statusOpts = ['pending','ordered','shipped','delivered','issued','returned','lost'];
+            html += `<div class="table-wrap"><table><thead><tr><th>Item</th><th>Model</th><th>Serial #</th><th>Tracking</th><th>Status</th><th>Notes</th>${canEdit ? '<th style="width:70px">Actions</th>' : ''}</tr></thead><tbody>${
                 items.map(i => {
-                    const canEdit = isRole('admin','hr','manager');
                     const statusCell = canEdit
                         ? '<select onchange="updateEquipStatus(' + i.id + ',this.value)" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--card-bg);color:var(--text)">'
-                          + '<option value="issued"' + (i.status==='issued'?' selected':'') + '>Issued</option>'
-                          + '<option value="returned"' + (i.status==='returned'?' selected':'') + '>Returned</option>'
-                          + '<option value="lost"' + (i.status==='lost'?' selected':'') + '>Lost</option>'
+                          + statusOpts.map(s => '<option value="' + s + '"' + (i.status===s?' selected':'') + '>' + s.charAt(0).toUpperCase() + s.slice(1) + '</option>').join('')
                           + '</select>'
                         : '<span class="equip-status ' + (i.status||'') + '">' + esc(i.status) + '</span>';
+                    const actions = canEdit ? `<td style="white-space:nowrap">
+                        <button class="task-action-btn" title="Edit" onclick="showEditEquipModal(${empId},${i.id})">✏️</button>
+                        ${canDelete ? `<button class="task-action-btn delete" title="Delete" onclick="deleteEquipment(${empId},${i.id},'${esc(i.item_type).replace(/'/g,"\\&#39;")}')">🗑️</button>` : ''}
+                    </td>` : '';
                     return `<tr><td><strong>${esc(i.item_type)}</strong></td><td>${esc(i.model||'—')}</td><td>${esc(i.serial_number||'—')}</td>
                     <td>${esc(i.tracking_number||'—')}</td><td>${statusCell}</td>
-                    <td>${esc(i.notes||'')}</td></tr>`;
+                    <td>${esc(i.notes||'')}</td>${actions}</tr>`;
                 }).join('')
             }</tbody></table></div>`;
         }
@@ -2919,26 +2923,73 @@ async function sendSurvey(empId, type) { const r = await api('/api/employees/' +
 
 function showAddEquipModal(empId) {
     showModal('Add Equipment', `
-        <div class="form-group"><label>Item Type</label>
-            <select class="form-control" id="aeq-type">${EQUIP_TYPES.map(t=>`<option value="${t}">${t}</option>`).join('')}</select></div>
-        <div class="form-group"><label>Model</label><input class="form-control" id="aeq-model"></div>
-        <div class="form-group"><label>Serial Number</label><input class="form-control" id="aeq-serial"></div>
-        <div class="form-group"><label>Notes</label><input class="form-control" id="aeq-notes"></div>
+        <div class="form-group"><label>Item Type <span class="required">*</span></label>
+            <select class="form-control" id="aeq-type">${EQUIP_TYPES.map(t=>`<option value="${t}">${t.charAt(0).toUpperCase()+t.slice(1)}</option>`).join('')}</select></div>
+        <div class="form-group"><label>Model</label><input class="form-control" id="aeq-model" placeholder="e.g. MacBook Pro 14&quot; M3"></div>
+        <div class="form-group"><label>Serial Number</label><input class="form-control" id="aeq-serial" placeholder="e.g. C02X1234ABCD"></div>
+        <div class="form-group"><label>Tracking Number</label><input class="form-control" id="aeq-tracking" placeholder="e.g. 1Z999AA10123456784"></div>
+        <div class="form-group"><label>Status</label>
+            <select class="form-control" id="aeq-status">
+                <option value="pending">Pending</option><option value="ordered">Ordered</option>
+                <option value="shipped">Shipped</option><option value="delivered">Delivered</option>
+                <option value="issued" selected>Issued</option>
+            </select></div>
+        <div class="form-group"><label>Notes</label><input class="form-control" id="aeq-notes" placeholder="e.g. Same model as MB's laptop"></div>
     `, { footer: `<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
                    <button class="btn btn-primary" onclick="saveEquipment(${empId})">Add</button>` });
 }
 
 async function saveEquipment(empId) {
     const r = await api('/api/employees/' + empId + '/equipment', { method: 'POST', body: {
-        item_type: document.getElementById('aeq-type')?.value, model: document.getElementById('aeq-model')?.value,
-        serial_number: document.getElementById('aeq-serial')?.value, notes: document.getElementById('aeq-notes')?.value
+        item_type: document.getElementById('aeq-type')?.value,
+        model: document.getElementById('aeq-model')?.value,
+        serial_number: document.getElementById('aeq-serial')?.value,
+        tracking_number: document.getElementById('aeq-tracking')?.value,
+        status: document.getElementById('aeq-status')?.value || 'issued',
+        notes: document.getElementById('aeq-notes')?.value
     }});
     if (r) { showToast('Equipment added'); closeModal(); switchEmpTab('equipment', empId); }
 }
 
+function showEditEquipModal(empId, eqId) {
+    // Fetch current equipment data from the table row
+    api('/api/employees/' + empId + '/equipment').then(function(data) {
+        var items = data?.equipment || data || [];
+        var item = items.find(function(i) { return i.id === eqId; });
+        if (!item) { showToast('Equipment not found', 'error'); return; }
+        showModal('Edit Equipment — ' + esc(item.item_type), `
+            <div class="form-group"><label>Item Type <span class="required">*</span></label>
+                <select class="form-control" id="eeq-type">${EQUIP_TYPES.map(t=>`<option value="${t}" ${item.item_type===t?'selected':''}>${t.charAt(0).toUpperCase()+t.slice(1)}</option>`).join('')}</select></div>
+            <div class="form-group"><label>Model</label><input class="form-control" id="eeq-model" value="${esc(item.model||'')}"></div>
+            <div class="form-group"><label>Serial Number</label><input class="form-control" id="eeq-serial" value="${esc(item.serial_number||'')}"></div>
+            <div class="form-group"><label>Tracking Number</label><input class="form-control" id="eeq-tracking" value="${esc(item.tracking_number||'')}"></div>
+            <div class="form-group"><label>Notes</label><input class="form-control" id="eeq-notes" value="${esc(item.notes||'')}"></div>
+        `, { footer: `<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                       <button class="btn btn-primary" onclick="updateEquipment(${empId},${eqId})">Save</button>` });
+    });
+}
+
+async function updateEquipment(empId, eqId) {
+    var body = {
+        item_type: document.getElementById('eeq-type')?.value,
+        model: document.getElementById('eeq-model')?.value,
+        serial_number: document.getElementById('eeq-serial')?.value,
+        tracking_number: document.getElementById('eeq-tracking')?.value,
+        notes: document.getElementById('eeq-notes')?.value,
+    };
+    var r = await api('/api/equipment/' + eqId, { method: 'PUT', body: body });
+    if (r) { showToast('Equipment updated', 'success'); closeModal(); switchEmpTab('equipment', empId); }
+}
+
+async function deleteEquipment(empId, eqId, itemName) {
+    if (!confirm('Delete ' + itemName + '? This cannot be undone.')) return;
+    var r = await api('/api/equipment/' + eqId, { method: 'DELETE' });
+    if (r) { showToast(itemName + ' deleted', 'success'); switchEmpTab('equipment', empId); }
+}
+
 async function updateEquipStatus(equipId, newStatus) {
     try {
-        await api('/api/employees/' + state.selectedEmployee + '/equipment/' + equipId, {
+        await api('/api/equipment/' + equipId, {
             method: 'PUT', body: { status: newStatus }
         });
         showToast('Equipment status updated' + (newStatus === 'returned' ? ' — offboarding tasks synced' : ''), 'success');

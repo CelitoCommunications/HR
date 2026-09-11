@@ -3089,10 +3089,11 @@ def add_equipment(emp_id):
             return jsonify({'error': 'Employee not found'}), 404
 
         db.execute(
-            'INSERT INTO equipment (employee_id, item_type, model, serial_number, notes, status, created_at) '
-            'VALUES (?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO equipment (employee_id, item_type, model, serial_number, tracking_number, notes, status, created_at) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             (emp_id, data['item_type'], data.get('model'), data.get('serial_number'),
-             data.get('notes'), data.get('status', 'pending'), datetime.utcnow().isoformat())
+             data.get('tracking_number'), data.get('notes'), data.get('status', 'pending'),
+             datetime.utcnow().isoformat())
         )
         db.commit()
         eq_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
@@ -3196,8 +3197,8 @@ def update_equipment(eq_id):
         if not eq:
             return jsonify({'error': 'Equipment not found'}), 404
 
-        allowed = ['model', 'serial_number', 'notes', 'status', 'tracking_number',
-                    'issued_date', 'returned_date']
+        allowed = ['item_type', 'model', 'serial_number', 'notes', 'status',
+                    'tracking_number', 'issued_date', 'returned_date']
         updates = []
         params = []
         for field in allowed:
@@ -3229,6 +3230,30 @@ def update_equipment(eq_id):
 
         updated = db.execute('SELECT * FROM equipment WHERE id = ?', (eq_id,)).fetchone()
         return jsonify(dict(updated))
+    finally:
+        db.close()
+
+
+@mgr_bp.route('/equipment/<int:eq_id>', methods=['DELETE'])
+@login_required
+@role_required(['admin', 'hr'])
+def delete_equipment(eq_id):
+    """Delete an equipment record."""
+    db = get_db()
+    try:
+        eq = db.execute('SELECT * FROM equipment WHERE id = ?', (eq_id,)).fetchone()
+        if not eq:
+            return jsonify({'error': 'Equipment not found'}), 404
+
+        db.execute('DELETE FROM equipment WHERE id = ?', (eq_id,))
+        db.commit()
+
+        _audit('equipment_deleted', 'equipment', eq_id, {
+            'item_type': eq['item_type'],
+            'employee_id': eq['employee_id'],
+        })
+
+        return jsonify({'ok': True, 'deleted': eq_id})
     finally:
         db.close()
 
