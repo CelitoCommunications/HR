@@ -2983,7 +2983,7 @@ async function updateEquipment(empId, eqId) {
 
 async function deleteEquipment(empId, eqId, itemName) {
     if (!confirm('Delete ' + itemName + '? This cannot be undone.')) return;
-    var r = await api('/api/employees/' + empId + '/equipment/' + eqId + '/delete', { method: 'POST' });
+    var r = await api('/api/employees/' + empId + '/equipment/' + eqId, { method: 'POST', body: { _action: 'delete' } });
     if (r) { showToast(itemName + ' deleted', 'success'); switchEmpTab('equipment', empId); }
 }
 

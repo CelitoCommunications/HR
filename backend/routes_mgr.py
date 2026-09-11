@@ -3123,6 +3123,15 @@ def update_equipment_scoped(emp_id, eq_id):
         if not eq:
             return jsonify({'error': 'Equipment not found'}), 404
 
+        # Handle delete via _action field
+        if data.get('_action') == 'delete':
+            db.execute('DELETE FROM equipment WHERE id = ?', (eq_id,))
+            db.commit()
+            _audit('equipment_deleted', 'equipment', eq_id, {
+                'item_type': eq['item_type'], 'employee_id': emp_id,
+            })
+            return jsonify({'ok': True, 'deleted': eq_id})
+
         allowed = ['item_type', 'model', 'serial_number', 'notes', 'status',
                     'tracking_number', 'issued_date', 'returned_date']
         updates = []
