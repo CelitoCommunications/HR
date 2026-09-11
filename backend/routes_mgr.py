@@ -2857,7 +2857,7 @@ def update_task(task_id):
         db.close()
 
 
-@mgr_bp.route('/tasks/bulk-reassign', methods=['PUT'])
+@mgr_bp.route('/tasks/bulk-reassign', methods=['POST'])
 @login_required
 @role_required(['admin', 'hr', 'manager'])
 def bulk_reassign_tasks():
