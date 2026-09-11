@@ -4162,7 +4162,7 @@ async function switchAdminTab(tab) {
                             <label style="font-weight:600;font-size:13px;display:block">${esc(f.label)}</label>
                             <div style="font-size:11px;color:var(--text-light)">${esc(f.desc)}</div>
                         </div>
-                        <input class="form-control" id="setting-${f.key.replace(/\\./g,'-')}" value="${esc(settings[f.key]||'')}"
+                        <input class="form-control" id="setting-${f.key.split('.').join('-')}" value="${esc(settings[f.key]||'')}"
                             placeholder="email@celito.net" style="width:240px;font-size:13px">
                     </div>
                 `).join('')}
