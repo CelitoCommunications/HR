@@ -2379,7 +2379,7 @@ function renderChecklistItem(t, allTasks, isSub) {
         ${t.is_security_critical ? '<span class="badge badge-security">🔴 SECURITY</span>' : ''}
         ${t.compliance_required ? '<span class="badge badge-compliance">📋 COMPLIANCE</span>' : ''}
         ${t.is_acknowledgment ? '<span class="badge badge-success" style="font-size:10px">ACK</span>' : ''}
-        <span class="task-meta">${esc(t.assigned_to||'')} · ${formatDate(t.due_date)}</span>
+        <span class="task-meta">${esc(t.assigned_to||'')}${t.assigned_email ? ' (' + esc(t.assigned_email) + ')' : ''} · ${formatDate(t.due_date)}</span>
         ${t.status !== 'completed' && t.status !== 'pending_review' && t.due_date && daysUntil(t.due_date) < 0 ? `<span class="badge badge-danger">${Math.abs(daysUntil(t.due_date))}d late</span>` : ''}
         ${blocked ? `<span style="font-size:10px;color:var(--text-muted)" title="Blocked by: ${esc(depName)}">(blocked)</span>` : ''}
         ${canManage ? `<span class="task-actions">
@@ -2445,6 +2445,29 @@ async function startOnboarding(id) {
         html += '</div>';
     }
     html += '<div style="font-size:12px;color:var(--text-light);margin-bottom:8px;">Employee location: <strong>' + esc(locationLabels[empLocation] || empLocation) + '</strong></div>';
+
+    // Team Assignments panel
+    var ta = preview.team_assignments || {};
+    html += '<details style="margin-bottom:12px;border:1px solid var(--border-color);border-radius:var(--radius-sm);padding:8px 12px" open>';
+    html += '<summary style="cursor:pointer;font-weight:600;font-size:14px">\u{1F465} Team Assignments</summary>';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">';
+    var teamRoles = [
+        ['Manager', ta.manager_email],
+        ['HR Owner', ta.hr_owner_email],
+        ['SysAdmin', ta.sysadmin_email],
+        ['Service Desk', ta.servicedesk_email],
+        ['Voice Dept', ta.voice_dept_email],
+        ['Facilities', ta.facilities_email]
+    ];
+    for (var ri = 0; ri < teamRoles.length; ri++) {
+        var rLabel = teamRoles[ri][0], rEmail = teamRoles[ri][1] || '';
+        html += '<div style="font-size:12px;padding:4px 8px;background:var(--bg-subtle,#f8f9fa);border-radius:4px">';
+        html += '<strong>' + esc(rLabel) + ':</strong> ' + (rEmail ? esc(rEmail) : '<span style="color:var(--text-muted)">Not set</span>');
+        html += '</div>';
+    }
+    html += '</div>';
+    html += '<div style="font-size:11px;color:var(--text-light);margin-top:6px">These come from the employee record and Admin → Settings. Update them there to change defaults.</div>';
+    html += '</details>';
 
     // Task list grouped by phase (collapsible) with checkboxes
     var taskIdx = 0;
@@ -2539,8 +2562,33 @@ function autoExcludeLocationMismatch(empLoc) {
     showToast(excluded + ' location-mismatched task' + (excluded !== 1 ? 's' : '') + ' excluded', 'success');
 }
 
-function showOffboardModal(id) {
+async function showOffboardModal(id) {
+    // Fetch team assignments for the offboarding panel
+    var ta = await api('/api/team-assignments/' + id) || {};
+
+    var teamHtml = '<details style="margin-bottom:12px;border:1px solid var(--border-color);border-radius:var(--radius-sm);padding:8px 12px" open>';
+    teamHtml += '<summary style="cursor:pointer;font-weight:600;font-size:14px">\u{1F465} Team Assignments</summary>';
+    teamHtml += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">';
+    var teamRoles = [
+        ['Manager', ta.manager_email],
+        ['HR Owner', ta.hr_owner_email],
+        ['SysAdmin', ta.sysadmin_email],
+        ['Service Desk', ta.servicedesk_email],
+        ['Voice Dept', ta.voice_dept_email],
+        ['Facilities', ta.facilities_email]
+    ];
+    for (var ri = 0; ri < teamRoles.length; ri++) {
+        var rLabel = teamRoles[ri][0], rEmail = teamRoles[ri][1] || '';
+        teamHtml += '<div style="font-size:12px;padding:4px 8px;background:var(--bg-subtle,#f8f9fa);border-radius:4px">';
+        teamHtml += '<strong>' + esc(rLabel) + ':</strong> ' + (rEmail ? esc(rEmail) : '<span style="color:var(--text-muted)">Not set</span>');
+        teamHtml += '</div>';
+    }
+    teamHtml += '</div>';
+    teamHtml += '<div style="font-size:11px;color:var(--text-light);margin-top:6px">These come from the employee record and Admin → Settings. Update them there to change defaults.</div>';
+    teamHtml += '</details>';
+
     showModal('Start Offboarding', `
+        ${teamHtml}
         <div class="form-group"><label>Last Day <span class="required">*</span></label>
             <input class="form-control" id="off-lastday" type="date"></div>
         <div class="form-group"><label>Type <span class="required">*</span></label>
@@ -5035,7 +5083,7 @@ async function renderMyOnboarding(el) {
                     ${canMarkAlreadyDone ? `<button class="btn btn-xs btn-secondary" onclick="markAlreadyDone(${t.id})" title="I completed this in my previous time at Celito">Already Done</button>` : ''}
                     ${blockedBy ? `<a href="#" onclick="event.preventDefault();scrollToTask('${esc(blockedBy.title).replace(/'/g, "\\'")}');return false" class="badge badge-secondary" style="font-size:11px;cursor:pointer;text-decoration:none">Complete "${esc(blockedBy.title)}" first ↗</a>` : ''}
                     ${t.resource_url ? `<a href="${esc(t.resource_url)}" target="_blank" style="font-size:12px;margin-right:4px" title="View resource">📎</a>` : ''}
-                    <span class="task-meta">${esc(t.assigned_to||'')} · ${formatDate(t.due_date)}</span>
+                    <span class="task-meta">${esc(t.assigned_to||'')}${t.assigned_email ? ' (' + esc(t.assigned_email) + ')' : ''} · ${formatDate(t.due_date)}</span>
                     <button class="task-action-btn" onclick="event.stopPropagation();showTaskCommentModal(${t.id},'${esc(t.title).replace(/'/g,"\\&#39;")}')" title="Comment or flag blocker">💬</button>
                 </div>`;
             }).join('')}</div>

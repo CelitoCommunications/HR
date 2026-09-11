@@ -1673,6 +1673,30 @@ def update_employee(emp_id):
         db.close()
 
 
+# ── Team Assignments ─────────────────────────────────────────────────────────
+
+@mgr_bp.route('/team-assignments/<int:emp_id>', methods=['GET'])
+@login_required
+@role_required(['admin', 'hr', 'manager'])
+def get_team_assignments(emp_id):
+    """Return team role assignments for an employee (from employee record + config)."""
+    db = get_db()
+    try:
+        emp = db.execute('SELECT * FROM employees WHERE id = ?', (emp_id,)).fetchone()
+        if not emp:
+            return jsonify({'error': 'Employee not found'}), 404
+        return jsonify({
+            'manager_email': emp.get('manager_email', '') or '',
+            'hr_owner_email': emp.get('hr_owner_email', '') or config.get('team_assignments.hr_email', ''),
+            'sysadmin_email': config.get('team_assignments.sysadmin_email', ''),
+            'servicedesk_email': config.get('team_assignments.servicedesk_email', ''),
+            'voice_dept_email': config.get('team_assignments.voice_dept_email', ''),
+            'facilities_email': config.get('team_assignments.facilities_email', ''),
+        })
+    finally:
+        db.close()
+
+
 # ── Onboarding ───────────────────────────────────────────────────────────────
 
 @mgr_bp.route('/employees/<int:emp_id>/onboard/preview', methods=['GET', 'POST'])
@@ -1800,6 +1824,14 @@ def preview_onboarding(emp_id):
             'tasks': preview_tasks,
             'tasks_by_phase': by_phase,
             'tasks_by_category': by_category,
+            'team_assignments': {
+                'manager_email': emp.get('manager_email', '') or '',
+                'hr_owner_email': emp.get('hr_owner_email', '') or config.get('team_assignments.hr_email', ''),
+                'sysadmin_email': config.get('team_assignments.sysadmin_email', ''),
+                'servicedesk_email': config.get('team_assignments.servicedesk_email', ''),
+                'voice_dept_email': config.get('team_assignments.voice_dept_email', ''),
+                'facilities_email': config.get('team_assignments.facilities_email', ''),
+            },
         })
     finally:
         db.close()
@@ -2281,6 +2313,14 @@ def preview_offboarding(emp_id):
             'immediate_tasks': immediate_tasks,
             'tasks_by_category': by_category,
             'tasks_by_urgency': by_urgency,
+            'team_assignments': {
+                'manager_email': emp.get('manager_email', '') or '',
+                'hr_owner_email': emp.get('hr_owner_email', '') or config.get('team_assignments.hr_email', ''),
+                'sysadmin_email': config.get('team_assignments.sysadmin_email', ''),
+                'servicedesk_email': config.get('team_assignments.servicedesk_email', ''),
+                'voice_dept_email': config.get('team_assignments.voice_dept_email', ''),
+                'facilities_email': config.get('team_assignments.facilities_email', ''),
+            },
         })
     finally:
         db.close()
