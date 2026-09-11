@@ -20,8 +20,8 @@ echo.
 
 REM ── Step 1: Stop the server if running (same as daily_restart.ps1) ──
 echo [Step 1] Stopping Celito Onboarding server...
-REM Kill any Python process running backend\server.py (matches Task Scheduler method)
-for /f "tokens=2" %%P in ('wmic process where "CommandLine like '%%backend\\server.py%%'" get ProcessId /value 2^>NUL ^| findstr "ProcessId"') do (
+REM Kill only the HR onboarding server (full path match so other apps are not affected)
+for /f "tokens=2" %%P in ('wmic process where "CommandLine like '%%Roadmap\\HR\\backend\\server.py%%'" get ProcessId /value 2^>NUL ^| findstr "ProcessId"') do (
     echo          Stopping PID %%P...
     taskkill /PID %%P /F >NUL 2>&1
 )

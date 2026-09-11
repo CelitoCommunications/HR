@@ -23,7 +23,8 @@ function Write-Log($msg) {
 }
 
 # ── Kill any existing server process ────────────────────────
-$existing = Get-WmiObject Win32_Process -Filter "CommandLine LIKE '%backend\\server.py%'" 2>$null |
+# Match the full project path so we only kill THIS app, not other Celito apps
+$existing = Get-WmiObject Win32_Process -Filter "CommandLine LIKE '%Roadmap\\HR\\backend\\server.py%'" 2>$null |
             Where-Object { $_.ProcessId -ne $PID }
 
 if ($existing) {
