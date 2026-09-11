@@ -21,11 +21,37 @@ DB_PATH = os.path.join(PROJECT_DIR, "app.db")
 # Connection helper
 # ──────────────────────────────────────────────────────────────────────
 
+class _DictRow(dict):
+    """A dict subclass that also supports positional (integer) indexing.
+
+    This replaces sqlite3.Row as the row factory so that rows work with
+    both ``row['column']`` / ``row.get('column')`` (dict interface) and
+    ``row[0]`` (positional index used by ``SELECT COUNT(*)`` patterns).
+    """
+
+    __slots__ = ('_values',)
+
+    def __init__(self, mapping, values):
+        super().__init__(mapping)
+        object.__setattr__(self, '_values', values)
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self._values[key]
+        return super().__getitem__(key)
+
+
+def _dict_factory(cursor, row):
+    """Row factory returning _DictRow instances."""
+    mapping = {col[0]: row[idx] for idx, col in enumerate(cursor.description)}
+    return _DictRow(mapping, row)
+
+
 def get_db(path=None):
     """Return a new SQLite connection with WAL mode and row factory."""
     db_path = path or DB_PATH
     conn = sqlite3.connect(db_path, timeout=60)
-    conn.row_factory = sqlite3.Row
+    conn.row_factory = _dict_factory
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=60000")
     conn.execute("PRAGMA foreign_keys=ON")

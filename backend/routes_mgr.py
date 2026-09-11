@@ -1824,6 +1824,7 @@ def start_onboarding(emp_id):
             return jsonify({'error': 'Employee already has an active onboarding checklist'}), 409
 
         emp_dict = dict(emp)
+        logger.info("start_onboarding: emp_dict type=%s, keys=%s", type(emp).__name__, list(emp_dict.keys()))
 
         # Create checklist
         db.execute(
@@ -2000,6 +2001,10 @@ def start_onboarding(emp_id):
         result['tasks'] = [dict(t) for t in tasks_rows]
         result['task_count'] = len(result['tasks'])
         return jsonify(result), 201
+    except Exception as e:
+        logger.exception("start_onboarding failed for emp_id=%s", emp_id)
+        db.rollback()
+        return jsonify({'error': f'Onboarding failed: {e}'}), 500
     finally:
         db.close()
 
