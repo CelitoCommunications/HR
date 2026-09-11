@@ -2756,7 +2756,7 @@ async function saveEditOnboarding(empId) {
     btn.disabled = true;
     btn.textContent = 'Saving...';
 
-    var result = await api('/api/tasks/bulk-reassign', { method: 'POST', body: { assignments: changes } });
+    var result = await api('/api/tasks/bulk', { method: 'POST', body: { action: 'reassign_each', assignments: changes } });
     if (result && result.ok) {
         showToast(result.updated + ' task' + (result.updated !== 1 ? 's' : '') + ' updated', 'success');
         closeModal();

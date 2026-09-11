@@ -2857,85 +2857,6 @@ def update_task(task_id):
         db.close()
 
 
-@mgr_bp.route('/tasks/bulk-reassign', methods=['POST'])
-@login_required
-@role_required(['admin', 'hr', 'manager'])
-def bulk_reassign_tasks():
-    """
-    Per-task bulk reassignment.
-
-    JSON body:
-        assignments: list[{task_id: int, assigned_to: str, assigned_email: str}]
-
-    Updates each task individually. Sends one Slack DM per unique new assignee.
-    """
-    user = get_current_user()
-    data = request.get_json(force=True)
-    assignments = data.get('assignments', [])
-
-    if not assignments or not isinstance(assignments, list):
-        return jsonify({'error': 'assignments must be a non-empty list'}), 400
-
-    db = get_db()
-    try:
-        updated = 0
-        notified_emails = set()
-
-        for item in assignments:
-            task_id = item.get('task_id')
-            new_name = (item.get('assigned_to') or '').strip()
-            new_email = (item.get('assigned_email') or '').strip().lower()
-
-            if not task_id:
-                continue
-
-            task = db.execute('SELECT * FROM tasks WHERE id = ?', (int(task_id),)).fetchone()
-            if not task:
-                continue
-
-            # Skip if nothing changed
-            old_name = (task['assigned_to'] or '').strip()
-            old_email = (task['assigned_email'] or '').strip().lower()
-            if new_name == old_name and new_email == old_email:
-                continue
-
-            db.execute(
-                'UPDATE tasks SET assigned_to = ?, assigned_email = ? WHERE id = ?',
-                (new_name, new_email, int(task_id))
-            )
-            updated += 1
-
-            # Track for Slack notification
-            if new_email:
-                notified_emails.add(new_email)
-
-        db.commit()
-
-        # Send one Slack DM per unique new assignee
-        if notified_emails:
-            try:
-                from .slack_client import SlackClient
-                slack = SlackClient()
-                for email in notified_emails:
-                    slack.send_dm(
-                        email,
-                        f"📋 *Tasks reassigned to you*\n"
-                        f"_Reassigned by {user.get('name', user['email'])}. "
-                        f"Check the onboarding portal for details._",
-                    )
-            except Exception:
-                pass  # Slack is best-effort
-
-        _audit('bulk_reassign_granular', 'tasks', None, {
-            'count': updated,
-            'total_submitted': len(assignments),
-        })
-
-        return jsonify({'ok': True, 'updated': updated, 'requested': len(assignments)})
-    finally:
-        db.close()
-
-
 @mgr_bp.route('/tasks/bulk', methods=['POST'])
 @role_required('admin', 'hr', 'manager')
 def bulk_update_tasks():
@@ -2951,6 +2872,56 @@ def bulk_update_tasks():
     data = request.get_json(force=True)
     task_ids = data.get("task_ids", [])
     action = data.get("action", "")
+
+    # ── Per-task granular reassignment (Edit Onboarding modal) ──────
+    if action == "reassign_each":
+        assignments = data.get("assignments", [])
+        if not assignments or not isinstance(assignments, list):
+            return jsonify({"error": "assignments must be a non-empty list"}), 400
+        updated = 0
+        notified_emails = set()
+        db = get_db()
+        try:
+            for item in assignments:
+                tid = item.get("task_id")
+                new_name = (item.get("assigned_to") or "").strip()
+                new_email = (item.get("assigned_email") or "").strip().lower()
+                if not tid:
+                    continue
+                task = db.execute("SELECT * FROM tasks WHERE id = ?", (int(tid),)).fetchone()
+                if not task:
+                    continue
+                old_name = (task["assigned_to"] or "").strip()
+                old_email = (task["assigned_email"] or "").strip().lower()
+                if new_name == old_name and new_email == old_email:
+                    continue
+                db.execute(
+                    "UPDATE tasks SET assigned_to = ?, assigned_email = ? WHERE id = ?",
+                    (new_name, new_email, int(tid)),
+                )
+                updated += 1
+                if new_email:
+                    notified_emails.add(new_email)
+            db.commit()
+            if notified_emails:
+                try:
+                    from .slack_client import SlackClient
+                    slack = SlackClient()
+                    for email in notified_emails:
+                        slack.send_dm(
+                            email,
+                            f"📋 *Tasks reassigned to you*\n"
+                            f"_Reassigned by {user.get('name', user['email'])}. "
+                            f"Check the onboarding portal for details._",
+                        )
+                except Exception:
+                    pass
+            _audit("bulk_reassign_each", "tasks", None, {
+                "count": updated, "total_submitted": len(assignments),
+            })
+            return jsonify({"ok": True, "updated": updated, "requested": len(assignments)})
+        finally:
+            db.close()
 
     if not task_ids or not isinstance(task_ids, list):
         return jsonify({"error": "task_ids must be a non-empty list"}), 400
