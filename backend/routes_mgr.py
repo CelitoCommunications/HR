@@ -2117,56 +2117,90 @@ def get_checklist(emp_id):
 
         checklists = db.execute(query, params).fetchall()
 
-        # Backfill assigned_email for tasks that have a role label but no email
+        # ── Backfill assigned_email ─────────────────────────────────────
+        # Self-contained: uses the SAME db connection, queries team
+        # settings once, builds the role→email mapping once, then updates
+        # every task that has a role label but no email yet.
         emp_dict = dict(emp)
         backfill_count = 0
-        _debug_backfill = {
-            'emp_manager_email': emp_dict.get('manager_email', ''),
-            'emp_hr_owner_email': emp_dict.get('hr_owner_email', ''),
-            'emp_email': emp_dict.get('email', ''),
-        }
-        unresolved = db.execute(
-            "SELECT id, assigned_to, assigned_email FROM tasks WHERE employee_id = ? "
-            "AND (assigned_email IS NULL OR assigned_email = '') "
-            "AND assigned_to IS NOT NULL AND assigned_to != ''",
-            (emp_id,)
-        ).fetchall()
-        _debug_backfill['unresolved_count'] = len(unresolved)
-        _debug_backfill['unresolved_sample'] = [
-            {'id': r['id'], 'assigned_to': r['assigned_to'], 'assigned_email': r['assigned_email']}
-            for r in unresolved[:5]
-        ]
-        # Test resolution for first unresolved task
-        if unresolved:
-            test_role = unresolved[0]['assigned_to']
-            try:
-                test_email = _resolve_assigned_email(test_role, emp_dict)
-                _debug_backfill['test_resolve'] = {'role': test_role, 'result': test_email}
-            except Exception as exc:
-                _debug_backfill['test_resolve'] = {'role': test_role, 'error': str(exc)}
-        # Test _get_team_email directly
+        _debug_backfill = {}
         try:
-            _debug_backfill['sysadmin_from_db'] = _get_team_email('team_assignments.sysadmin_email')
-        except Exception as exc:
-            _debug_backfill['sysadmin_from_db_error'] = str(exc)
-        # Also count ALL tasks for this employee to compare
-        all_count = db.execute("SELECT COUNT(*) FROM tasks WHERE employee_id = ?", (emp_id,)).fetchone()[0]
-        with_email = db.execute(
-            "SELECT COUNT(*) FROM tasks WHERE employee_id = ? AND assigned_email IS NOT NULL AND assigned_email != ''",
-            (emp_id,)
-        ).fetchone()[0]
-        _debug_backfill['total_tasks'] = all_count
-        _debug_backfill['tasks_with_email'] = with_email
+            # 1. Gather team emails from app_settings (same connection)
+            settings_rows = db.execute(
+                "SELECT key, value FROM app_settings WHERE key LIKE 'team_assignments.%'"
+            ).fetchall()
+            team_cfg = {r['key']: r['value'] for r in settings_rows if r['value']}
+            # Fall back to config file for any missing keys
+            for k in ('team_assignments.sysadmin_email',
+                      'team_assignments.servicedesk_email',
+                      'team_assignments.voice_dept_email',
+                      'team_assignments.hr_email',
+                      'team_assignments.facilities_email'):
+                if k not in team_cfg:
+                    team_cfg[k] = config.get(k, '')
 
-        for row in unresolved:
-            email = _resolve_assigned_email(row['assigned_to'], emp_dict)
-            if email:
-                db.execute('UPDATE tasks SET assigned_email = ? WHERE id = ?', (email, row['id']))
-                backfill_count += 1
-        _debug_backfill['backfilled'] = backfill_count
-        if backfill_count:
-            db.commit()
-            logger.info("Backfilled assigned_email for %d tasks (emp_id=%s)", backfill_count, emp_id)
+            sysadmin_email  = team_cfg.get('team_assignments.sysadmin_email', '')
+            servicedesk_email = team_cfg.get('team_assignments.servicedesk_email', '')
+            voice_email     = team_cfg.get('team_assignments.voice_dept_email', '')
+            hr_email        = emp_dict.get('hr_owner_email', '') or team_cfg.get('team_assignments.hr_email', '')
+            facilities_email = team_cfg.get('team_assignments.facilities_email', '')
+
+            # 2. Build role → email mapping
+            role_map = {
+                'manager':        emp_dict.get('manager_email', ''),
+                'hiring manager': emp_dict.get('manager_email', ''),
+                'hr':             hr_email,
+                'human resources': hr_email,
+                'sysadmin':       sysadmin_email,
+                'servicedesk':    servicedesk_email,
+                'service desk':   servicedesk_email,
+                'it':             servicedesk_email,
+                'voice dept':     voice_email,
+                'voice':          voice_email,
+                'facilities':     facilities_email,
+                'employee':       emp_dict.get('email', ''),
+                'dept leader':    '',
+            }
+
+            # 3. Find tasks needing backfill
+            unresolved = db.execute(
+                "SELECT id, assigned_to FROM tasks WHERE employee_id = ? "
+                "AND (assigned_email IS NULL OR assigned_email = '') "
+                "AND assigned_to IS NOT NULL AND assigned_to != ''",
+                (emp_id,)
+            ).fetchall()
+
+            # 4. Update each task
+            for row in unresolved:
+                role_key = (row['assigned_to'] or '').strip().lower()
+                email = role_map.get(role_key, '')
+                if email:
+                    db.execute('UPDATE tasks SET assigned_email = ? WHERE id = ?',
+                               (email, row['id']))
+                    backfill_count += 1
+
+            if backfill_count:
+                db.commit()
+                logger.info("Backfilled assigned_email for %d of %d tasks (emp_id=%s)",
+                            backfill_count, len(unresolved), emp_id)
+
+            # Debug diagnostics (TEMPORARY — add ?_debug=1 to see)
+            _debug_backfill = {
+                'team_cfg': team_cfg,
+                'role_map': role_map,
+                'emp_manager_email': emp_dict.get('manager_email', ''),
+                'emp_hr_owner_email': emp_dict.get('hr_owner_email', ''),
+                'emp_email': emp_dict.get('email', ''),
+                'unresolved_count': len(unresolved),
+                'unresolved_sample': [
+                    {'id': r['id'], 'assigned_to': r['assigned_to']}
+                    for r in unresolved[:5]
+                ],
+                'backfilled': backfill_count,
+            }
+        except Exception as exc:
+            logger.exception("Backfill failed for emp_id=%s: %s", emp_id, exc)
+            _debug_backfill = {'error': str(exc)}
 
         result = []
         for cl in checklists:
