@@ -2977,20 +2977,22 @@ async function updateEquipment(empId, eqId) {
         tracking_number: document.getElementById('eeq-tracking')?.value,
         notes: document.getElementById('eeq-notes')?.value,
     };
-    var r = await api('/api/employees/' + empId + '/equipment/' + eqId, { method: 'POST', body: body });
+    body._action = 'update';
+    body.equipment_id = eqId;
+    var r = await api('/api/employees/' + empId + '/equipment', { method: 'POST', body: body });
     if (r) { showToast('Equipment updated', 'success'); closeModal(); switchEmpTab('equipment', empId); }
 }
 
 async function deleteEquipment(empId, eqId, itemName) {
     if (!confirm('Delete ' + itemName + '? This cannot be undone.')) return;
-    var r = await api('/api/employees/' + empId + '/equipment/' + eqId, { method: 'POST', body: { _action: 'delete' } });
+    var r = await api('/api/employees/' + empId + '/equipment', { method: 'POST', body: { _action: 'delete', equipment_id: eqId } });
     if (r) { showToast(itemName + ' deleted', 'success'); switchEmpTab('equipment', empId); }
 }
 
 async function updateEquipStatus(empId, equipId, newStatus) {
     try {
-        await api('/api/employees/' + empId + '/equipment/' + equipId, {
-            method: 'POST', body: { status: newStatus }
+        await api('/api/employees/' + empId + '/equipment', {
+            method: 'POST', body: { _action: 'update', equipment_id: equipId, status: newStatus }
         });
         showToast('Equipment status updated' + (newStatus === 'returned' ? ' — offboarding tasks synced' : ''), 'success');
         switchEmpTab('equipment', empId);

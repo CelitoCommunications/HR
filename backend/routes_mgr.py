@@ -3076,17 +3076,82 @@ def list_equipment(emp_id):
 @mgr_bp.route('/employees/<int:emp_id>/equipment', methods=['POST'])
 @login_required
 @role_required(['admin', 'hr', 'manager'])
-def add_equipment(emp_id):
-    """Add an equipment item for an employee."""
+def manage_equipment(emp_id):
+    """Add, update, or delete equipment for an employee.
+
+    JSON body:
+        For add:    { item_type, model?, serial_number?, tracking_number?, notes?, status? }
+        For update: { _action: 'update', equipment_id, ...fields to update... }
+        For delete: { _action: 'delete', equipment_id }
+    """
     data = request.get_json(silent=True)
-    if not data or not data.get('item_type'):
-        return jsonify({'error': 'item_type is required'}), 400
+    if not data:
+        return jsonify({'error': 'Request body required'}), 400
 
     db = get_db()
     try:
         emp = db.execute('SELECT * FROM employees WHERE id = ?', (emp_id,)).fetchone()
         if not emp:
             return jsonify({'error': 'Employee not found'}), 404
+
+        action = data.get('_action', 'add')
+        eq_id = data.get('equipment_id')
+
+        # ── DELETE ────────────────────────────────────────────────
+        if action == 'delete':
+            if not eq_id:
+                return jsonify({'error': 'equipment_id is required'}), 400
+            eq = db.execute('SELECT * FROM equipment WHERE id = ? AND employee_id = ?',
+                            (int(eq_id), emp_id)).fetchone()
+            if not eq:
+                return jsonify({'error': 'Equipment not found'}), 404
+            db.execute('DELETE FROM equipment WHERE id = ?', (int(eq_id),))
+            db.commit()
+            _audit('equipment_deleted', 'equipment', eq_id, {
+                'item_type': eq['item_type'], 'employee_id': emp_id,
+            })
+            return jsonify({'ok': True, 'deleted': eq_id})
+
+        # ── UPDATE ────────────────────────────────────────────────
+        if action == 'update':
+            if not eq_id:
+                return jsonify({'error': 'equipment_id is required'}), 400
+            eq = db.execute('SELECT * FROM equipment WHERE id = ? AND employee_id = ?',
+                            (int(eq_id), emp_id)).fetchone()
+            if not eq:
+                return jsonify({'error': 'Equipment not found'}), 404
+
+            allowed = ['item_type', 'model', 'serial_number', 'notes', 'status',
+                        'tracking_number', 'issued_date', 'returned_date']
+            updates = []
+            params = []
+            for field in allowed:
+                if field in data:
+                    updates.append(f'{field} = ?')
+                    params.append(data[field])
+            if not updates:
+                return jsonify({'error': 'No valid fields'}), 400
+
+            params.append(int(eq_id))
+            db.execute(f'UPDATE equipment SET {", ".join(updates)} WHERE id = ?', params)
+            db.commit()
+            _audit('equipment_updated', 'equipment', eq_id, data)
+
+            if data.get('status') == 'returned':
+                item_type = eq['item_type'] or ''
+                model_name = eq['model'] or ''
+                synced_terms = set()
+                for term in (item_type, model_name):
+                    if term and term.lower() not in synced_terms:
+                        synced_terms.add(term.lower())
+                        _sync_equipment_task_status(db, emp_id, term, 'returned', source='system')
+
+            updated = db.execute('SELECT * FROM equipment WHERE id = ?', (int(eq_id),)).fetchone()
+            return jsonify(dict(updated))
+
+        # ── ADD (default) ─────────────────────────────────────────
+        if not data.get('item_type'):
+            return jsonify({'error': 'item_type is required'}), 400
 
         db.execute(
             'INSERT INTO equipment (employee_id, item_type, model, serial_number, tracking_number, notes, status, created_at) '
@@ -3096,12 +3161,12 @@ def add_equipment(emp_id):
              datetime.utcnow().isoformat())
         )
         db.commit()
-        eq_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
+        new_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
 
         _audit('equipment_added', 'employee', emp_id,
-               {'equipment_id': eq_id, 'item_type': data['item_type']})
+               {'equipment_id': new_id, 'item_type': data['item_type']})
 
-        eq = db.execute('SELECT * FROM equipment WHERE id = ?', (eq_id,)).fetchone()
+        eq = db.execute('SELECT * FROM equipment WHERE id = ?', (new_id,)).fetchone()
         return jsonify(dict(eq)), 201
     finally:
         db.close()
