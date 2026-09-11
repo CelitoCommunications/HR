@@ -2206,7 +2206,9 @@ async function switchEmpTab(tab, empId) {
             </div>
         </div>`;
     } else if (tab === 'checklist') {
-        const data = await api('/api/employees/' + empId + '/checklist');
+        const rawData = await api('/api/employees/' + empId + '/checklist');
+        // Backend returns an array of checklists — pick the first active one
+        const data = Array.isArray(rawData) ? rawData.find(c => c.status === 'active') || rawData[0] : rawData;
         if (!data || !(data.tasks||[]).length) {
             content.innerHTML = '<div class="empty-state"><div class="icon">📋</div><h3>No checklist yet</h3><p>Start onboarding or use AI to generate one.</p></div>';
             return;
