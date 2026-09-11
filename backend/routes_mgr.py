@@ -3234,7 +3234,7 @@ def update_equipment(eq_id):
         db.close()
 
 
-@mgr_bp.route('/equipment/<int:eq_id>', methods=['DELETE'])
+@mgr_bp.route('/equipment/<int:eq_id>/delete', methods=['POST'])
 @login_required
 @role_required(['admin', 'hr'])
 def delete_equipment(eq_id):
