@@ -2120,17 +2120,50 @@ def get_checklist(emp_id):
         # Backfill assigned_email for tasks that have a role label but no email
         emp_dict = dict(emp)
         backfill_count = 0
+        _debug_backfill = {
+            'emp_manager_email': emp_dict.get('manager_email', ''),
+            'emp_hr_owner_email': emp_dict.get('hr_owner_email', ''),
+            'emp_email': emp_dict.get('email', ''),
+        }
         unresolved = db.execute(
-            "SELECT id, assigned_to FROM tasks WHERE employee_id = ? "
+            "SELECT id, assigned_to, assigned_email FROM tasks WHERE employee_id = ? "
             "AND (assigned_email IS NULL OR assigned_email = '') "
             "AND assigned_to IS NOT NULL AND assigned_to != ''",
             (emp_id,)
         ).fetchall()
+        _debug_backfill['unresolved_count'] = len(unresolved)
+        _debug_backfill['unresolved_sample'] = [
+            {'id': r['id'], 'assigned_to': r['assigned_to'], 'assigned_email': r['assigned_email']}
+            for r in unresolved[:5]
+        ]
+        # Test resolution for first unresolved task
+        if unresolved:
+            test_role = unresolved[0]['assigned_to']
+            try:
+                test_email = _resolve_assigned_email(test_role, emp_dict)
+                _debug_backfill['test_resolve'] = {'role': test_role, 'result': test_email}
+            except Exception as exc:
+                _debug_backfill['test_resolve'] = {'role': test_role, 'error': str(exc)}
+        # Test _get_team_email directly
+        try:
+            _debug_backfill['sysadmin_from_db'] = _get_team_email('team_assignments.sysadmin_email')
+        except Exception as exc:
+            _debug_backfill['sysadmin_from_db_error'] = str(exc)
+        # Also count ALL tasks for this employee to compare
+        all_count = db.execute("SELECT COUNT(*) FROM tasks WHERE employee_id = ?", (emp_id,)).fetchone()[0]
+        with_email = db.execute(
+            "SELECT COUNT(*) FROM tasks WHERE employee_id = ? AND assigned_email IS NOT NULL AND assigned_email != ''",
+            (emp_id,)
+        ).fetchone()[0]
+        _debug_backfill['total_tasks'] = all_count
+        _debug_backfill['tasks_with_email'] = with_email
+
         for row in unresolved:
             email = _resolve_assigned_email(row['assigned_to'], emp_dict)
             if email:
                 db.execute('UPDATE tasks SET assigned_email = ? WHERE id = ?', (email, row['id']))
                 backfill_count += 1
+        _debug_backfill['backfilled'] = backfill_count
         if backfill_count:
             db.commit()
             logger.info("Backfilled assigned_email for %d tasks (emp_id=%s)", backfill_count, emp_id)
@@ -2161,6 +2194,9 @@ def get_checklist(emp_id):
             cl_dict['progress'] = round((completed / total * 100) if total > 0 else 0, 1)
             result.append(cl_dict)
 
+        # TEMPORARY debug output — remove after diagnosis
+        if request.args.get('_debug') == '1':
+            return jsonify({'checklists': result, '_debug_backfill': _debug_backfill})
         return jsonify(result)
     finally:
         db.close()
