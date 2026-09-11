@@ -84,9 +84,21 @@ def _can_access_employee(user, employee):
     return False
 
 
+def _get_team_email(config_key, default=''):
+    """Get a team assignment email, checking app_settings DB first, then config file."""
+    db = get_db()
+    try:
+        row = db.execute("SELECT value FROM app_settings WHERE key = ?", (config_key,)).fetchone()
+        if row and row['value']:
+            return row['value']
+    finally:
+        db.close()
+    return config.get(config_key, default)
+
+
 def _resolve_assigned_email(assigned_to, emp):
     """Resolve a role label (e.g. 'Manager', 'HR', 'SysAdmin') to an actual
-    email address using the employee record and team assignment config.
+    email address using the employee record, app_settings DB, and config file.
 
     If the task already has an assigned_email, this is not needed — call it
     only when assigned_email is missing and assigned_to contains a role label.
@@ -94,18 +106,25 @@ def _resolve_assigned_email(assigned_to, emp):
     if not assigned_to:
         return ''
     role = assigned_to.strip().lower()
+
+    sysadmin = _get_team_email('team_assignments.sysadmin_email')
+    servicedesk = _get_team_email('team_assignments.servicedesk_email')
+    voice = _get_team_email('team_assignments.voice_dept_email')
+    hr = emp.get('hr_owner_email', '') or _get_team_email('team_assignments.hr_email')
+    facilities = _get_team_email('team_assignments.facilities_email')
+
     mapping = {
         'manager':       emp.get('manager_email', ''),
         'hiring manager': emp.get('manager_email', ''),
-        'hr':            emp.get('hr_owner_email', '') or config.get('team_assignments.hr_email', ''),
-        'human resources': emp.get('hr_owner_email', '') or config.get('team_assignments.hr_email', ''),
-        'sysadmin':      config.get('team_assignments.sysadmin_email', ''),
-        'servicedesk':   config.get('team_assignments.servicedesk_email', ''),
-        'service desk':  config.get('team_assignments.servicedesk_email', ''),
-        'it':            config.get('team_assignments.servicedesk_email', ''),
-        'voice dept':    config.get('team_assignments.voice_dept_email', ''),
-        'voice':         config.get('team_assignments.voice_dept_email', ''),
-        'facilities':    config.get('team_assignments.facilities_email', ''),
+        'hr':            hr,
+        'human resources': hr,
+        'sysadmin':      sysadmin,
+        'servicedesk':   servicedesk,
+        'service desk':  servicedesk,
+        'it':            servicedesk,
+        'voice dept':    voice,
+        'voice':         voice,
+        'facilities':    facilities,
         'employee':      emp.get('email', ''),
         'dept leader':   '',  # no config for this yet
     }
@@ -1715,11 +1734,11 @@ def get_team_assignments(emp_id):
             return jsonify({'error': 'Employee not found'}), 404
         return jsonify({
             'manager_email': emp.get('manager_email', '') or '',
-            'hr_owner_email': emp.get('hr_owner_email', '') or config.get('team_assignments.hr_email', ''),
-            'sysadmin_email': config.get('team_assignments.sysadmin_email', ''),
-            'servicedesk_email': config.get('team_assignments.servicedesk_email', ''),
-            'voice_dept_email': config.get('team_assignments.voice_dept_email', ''),
-            'facilities_email': config.get('team_assignments.facilities_email', ''),
+            'hr_owner_email': emp.get('hr_owner_email', '') or _get_team_email('team_assignments.hr_email'),
+            'sysadmin_email': _get_team_email('team_assignments.sysadmin_email'),
+            'servicedesk_email': _get_team_email('team_assignments.servicedesk_email'),
+            'voice_dept_email': _get_team_email('team_assignments.voice_dept_email'),
+            'facilities_email': _get_team_email('team_assignments.facilities_email'),
         })
     finally:
         db.close()

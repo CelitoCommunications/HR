@@ -4097,6 +4097,7 @@ async function renderAdmin(el) {
     el.innerHTML = `<h1 style="margin-bottom:12px">Administration</h1>
         <div class="tabs" id="admin-tabs" style="margin-bottom:12px" role="tablist">
             <div class="tab ${state.adminTab==='users'?'active':''}" ${tabAttrs(state.adminTab==='users')} onclick="state.adminTab='users';switchAdminTab('users')">Users</div>
+            <div class="tab ${state.adminTab==='settings'?'active':''}" ${tabAttrs(state.adminTab==='settings')} onclick="state.adminTab='settings';switchAdminTab('settings')">Settings</div>
             <div class="tab ${state.adminTab==='integrations'?'active':''}" ${tabAttrs(state.adminTab==='integrations')} onclick="state.adminTab='integrations';switchAdminTab('integrations')">Integrations</div>
             <div class="tab ${state.adminTab==='audit'?'active':''}" ${tabAttrs(state.adminTab==='audit')} onclick="state.adminTab='audit';switchAdminTab('audit')">Audit Log</div>
         </div>
@@ -4137,6 +4138,38 @@ async function switchAdminTab(tab) {
                     <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="showEditUserModal(${u.id},'${esc(u.email)}','${esc(u.display_name)}','${esc(u.role)}','${esc(u.department||'')}')">✏️ Edit</button>
                         <button class="btn btn-sm btn-secondary" onclick="impersonateUser('${esc(u.display_name)}')">👁️ View as</button></td></tr>`).join('')
             }</tbody></table></div></div>`;
+    } else if (tab === 'settings') {
+        content.innerHTML = '<div class="loading-center"><div class="spinner"></div></div>';
+        const settings = await api('/api/admin/settings') || {};
+        const fields = [
+            { key: 'team_assignments.sysadmin_email', label: 'SysAdmin', icon: '🔧', desc: 'Active Directory, O365, domain accounts' },
+            { key: 'team_assignments.servicedesk_email', label: 'Service Desk', icon: '🖥️', desc: 'Computer setup, software, peripherals' },
+            { key: 'team_assignments.hr_email', label: 'HR (default)', icon: '👥', desc: 'Used when employee has no HR Owner assigned' },
+            { key: 'team_assignments.facilities_email', label: 'Facilities', icon: '🏢', desc: 'Desk setup, badge/keycard, office access' },
+            { key: 'team_assignments.voice_dept_email', label: 'Voice / Phones', icon: '📞', desc: 'Phone setup and voicemail provisioning' },
+        ];
+        content.innerHTML = `
+            <div class="card" style="max-width:640px">
+                <h2 style="margin-bottom:4px">👥 Team Assignments</h2>
+                <p style="font-size:13px;color:var(--text-light);margin-bottom:16px">
+                    Set the default person for each role. These emails are used when assigning onboarding and offboarding tasks.
+                    Per-employee overrides (Manager, HR Owner) are set on the employee record.
+                </p>
+                ${fields.map(f => `
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+                        <span style="font-size:20px;width:28px;text-align:center">${f.icon}</span>
+                        <div style="flex:1">
+                            <label style="font-weight:600;font-size:13px;display:block">${esc(f.label)}</label>
+                            <div style="font-size:11px;color:var(--text-light)">${esc(f.desc)}</div>
+                        </div>
+                        <input class="form-control" id="setting-${f.key.replace(/\\./g,'-')}" value="${esc(settings[f.key]||'')}"
+                            placeholder="email@celito.net" style="width:240px;font-size:13px">
+                    </div>
+                `).join('')}
+                <div style="display:flex;justify-content:flex-end;margin-top:16px;gap:8px">
+                    <button class="btn btn-primary" onclick="saveTeamAssignments()">💾 Save Team Assignments</button>
+                </div>
+            </div>`;
     } else if (tab === 'integrations') {
         content.innerHTML = `
             <div class="integration-card"><div class="int-icon">☁️</div><div class="int-info"><h4>Salesforce</h4><div class="int-status" id="sf-status">Click Test to verify</div></div>
@@ -4487,6 +4520,23 @@ async function saveEditUser(id) {
 }
 
 function impersonateUser(name) { window.location.search = '?as=' + encodeURIComponent(name); }
+async function saveTeamAssignments() {
+    const keys = [
+        'team_assignments.sysadmin_email',
+        'team_assignments.servicedesk_email',
+        'team_assignments.hr_email',
+        'team_assignments.facilities_email',
+        'team_assignments.voice_dept_email',
+    ];
+    const data = {};
+    keys.forEach(k => {
+        const el = document.getElementById('setting-' + k.replace(/\./g, '-'));
+        if (el) data[k] = el.value.trim();
+    });
+    const r = await api('/api/admin/settings', { method: 'PUT', body: data });
+    if (r) showToast('Team assignments saved!', 'success');
+}
+
 async function testIntegration(type) {
     showToast('Testing ' + type + '...', 'info');
     const statusEl = document.getElementById(type + '-status') || document.getElementById(type.replace('salesforce','sf') + '-status');
