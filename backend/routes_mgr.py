@@ -3107,6 +3107,78 @@ def add_equipment(emp_id):
         db.close()
 
 
+@mgr_bp.route('/employees/<int:emp_id>/equipment/<int:eq_id>', methods=['POST'])
+@login_required
+@role_required(['admin', 'hr', 'manager'])
+def update_equipment_scoped(emp_id, eq_id):
+    """Update an equipment item (employee-scoped route for IIS compatibility)."""
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': 'Request body required'}), 400
+
+    db = get_db()
+    try:
+        eq = db.execute('SELECT * FROM equipment WHERE id = ? AND employee_id = ?',
+                        (eq_id, emp_id)).fetchone()
+        if not eq:
+            return jsonify({'error': 'Equipment not found'}), 404
+
+        allowed = ['item_type', 'model', 'serial_number', 'notes', 'status',
+                    'tracking_number', 'issued_date', 'returned_date']
+        updates = []
+        params = []
+        for field in allowed:
+            if field in data:
+                updates.append(f'{field} = ?')
+                params.append(data[field])
+
+        if not updates:
+            return jsonify({'error': 'No valid fields'}), 400
+
+        params.append(eq_id)
+        db.execute(f'UPDATE equipment SET {", ".join(updates)} WHERE id = ?', params)
+        db.commit()
+
+        _audit('equipment_updated', 'equipment', eq_id, data)
+
+        if data.get('status') == 'returned':
+            item_type = eq['item_type'] or ''
+            model_name = eq['model'] or ''
+            synced_terms = set()
+            for term in (item_type, model_name):
+                if term and term.lower() not in synced_terms:
+                    synced_terms.add(term.lower())
+                    _sync_equipment_task_status(db, emp_id, term, 'returned', source='system')
+
+        updated = db.execute('SELECT * FROM equipment WHERE id = ?', (eq_id,)).fetchone()
+        return jsonify(dict(updated))
+    finally:
+        db.close()
+
+
+@mgr_bp.route('/employees/<int:emp_id>/equipment/<int:eq_id>/delete', methods=['POST'])
+@login_required
+@role_required(['admin', 'hr'])
+def delete_equipment_scoped(emp_id, eq_id):
+    """Delete an equipment record (employee-scoped route for IIS compatibility)."""
+    db = get_db()
+    try:
+        eq = db.execute('SELECT * FROM equipment WHERE id = ? AND employee_id = ?',
+                        (eq_id, emp_id)).fetchone()
+        if not eq:
+            return jsonify({'error': 'Equipment not found'}), 404
+
+        db.execute('DELETE FROM equipment WHERE id = ?', (eq_id,))
+        db.commit()
+
+        _audit('equipment_deleted', 'equipment', eq_id, {
+            'item_type': eq['item_type'], 'employee_id': emp_id,
+        })
+        return jsonify({'ok': True, 'deleted': eq_id})
+    finally:
+        db.close()
+
+
 EQUIPMENT_KEYWORDS = ('laptop', 'badge', 'phone', 'monitor', 'keyboard', 'mouse',
                       'headset', 'tablet', 'charger', 'docking station', 'key card')
 

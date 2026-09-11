@@ -2269,7 +2269,7 @@ async function switchEmpTab(tab, empId) {
             html += `<div class="table-wrap"><table><thead><tr><th>Item</th><th>Model</th><th>Serial #</th><th>Tracking</th><th>Status</th><th>Notes</th>${canEdit ? '<th style="width:70px">Actions</th>' : ''}</tr></thead><tbody>${
                 items.map(i => {
                     const statusCell = canEdit
-                        ? '<select onchange="updateEquipStatus(' + i.id + ',this.value)" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--card-bg);color:var(--text)">'
+                        ? '<select onchange="updateEquipStatus(' + empId + ',' + i.id + ',this.value)" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--card-bg);color:var(--text)">'
                           + statusOpts.map(s => '<option value="' + s + '"' + (i.status===s?' selected':'') + '>' + s.charAt(0).toUpperCase() + s.slice(1) + '</option>').join('')
                           + '</select>'
                         : '<span class="equip-status ' + (i.status||'') + '">' + esc(i.status) + '</span>';
@@ -2977,23 +2977,23 @@ async function updateEquipment(empId, eqId) {
         tracking_number: document.getElementById('eeq-tracking')?.value,
         notes: document.getElementById('eeq-notes')?.value,
     };
-    var r = await api('/api/equipment/' + eqId, { method: 'POST', body: body });
+    var r = await api('/api/employees/' + empId + '/equipment/' + eqId, { method: 'POST', body: body });
     if (r) { showToast('Equipment updated', 'success'); closeModal(); switchEmpTab('equipment', empId); }
 }
 
 async function deleteEquipment(empId, eqId, itemName) {
     if (!confirm('Delete ' + itemName + '? This cannot be undone.')) return;
-    var r = await api('/api/equipment/' + eqId + '/delete', { method: 'POST' });
+    var r = await api('/api/employees/' + empId + '/equipment/' + eqId + '/delete', { method: 'POST' });
     if (r) { showToast(itemName + ' deleted', 'success'); switchEmpTab('equipment', empId); }
 }
 
-async function updateEquipStatus(equipId, newStatus) {
+async function updateEquipStatus(empId, equipId, newStatus) {
     try {
-        await api('/api/equipment/' + equipId, {
+        await api('/api/employees/' + empId + '/equipment/' + equipId, {
             method: 'POST', body: { status: newStatus }
         });
         showToast('Equipment status updated' + (newStatus === 'returned' ? ' — offboarding tasks synced' : ''), 'success');
-        switchEmpTab('equipment', state.selectedEmployee);
+        switchEmpTab('equipment', empId);
     } catch(e) {
         showToast('Failed to update equipment: ' + e, 'error');
     }
